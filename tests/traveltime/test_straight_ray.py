@@ -5,7 +5,7 @@ import scipy.sparse as sp
 from helpers import assert_adjoint, assert_derivative, make_survey
 from simpeg import maps
 
-import simpeg_seismic as seismic
+from simpeg_seismic import traveltime
 
 
 def crosswell_survey(dim, n_src=4, n_rx=6):
@@ -42,7 +42,7 @@ CASES = [(dim, t) for dim in (2, 3) for t in ("tensor", "tree")]
 def test_homogeneous_traveltimes(dim, mesh_type):
     m = mesh(dim, mesh_type)
     survey = crosswell_survey(dim)
-    sim = seismic.SimulationStraightRay(
+    sim = traveltime.SimulationStraightRay(
         m, survey=survey, slownessMap=maps.IdentityMap(m)
     )
     s = 1 / 1500.0
@@ -57,7 +57,7 @@ def test_homogeneous_traveltimes(dim, mesh_type):
 @pytest.mark.parametrize("dim, mesh_type", CASES)
 def test_velocity_derivative_and_adjoint(dim, mesh_type):
     m = mesh(dim, mesh_type)
-    sim = seismic.SimulationStraightRay(
+    sim = traveltime.SimulationStraightRay(
         m, survey=crosswell_survey(dim), slownessMap=maps.ReciprocalMap(m)
     )
     rng = np.random.default_rng(42)
@@ -69,7 +69,7 @@ def test_velocity_derivative_and_adjoint(dim, mesh_type):
 
 def test_getJtJdiag():
     m = mesh(3, "tensor")
-    sim = seismic.SimulationStraightRay(
+    sim = traveltime.SimulationStraightRay(
         m, survey=crosswell_survey(3), slownessMap=maps.ReciprocalMap(m)
     )
     model = np.linspace(1000.0, 3000.0, m.n_cells)
@@ -84,7 +84,7 @@ def test_active_cells():
     m = mesh(2, "tensor")
     active = m.cell_centers[:, 1] < -2.0
     survey = crosswell_survey(2)
-    sim = seismic.SimulationStraightRay(
+    sim = traveltime.SimulationStraightRay(
         m,
         survey=survey,
         active_cells=active,
@@ -97,7 +97,7 @@ def test_active_cells():
 
 def test_survey_change_rebuilds_G():
     m = mesh(2, "tensor")
-    sim = seismic.SimulationStraightRay(m, survey=crosswell_survey(2, n_rx=3))
+    sim = traveltime.SimulationStraightRay(m, survey=crosswell_survey(2, n_rx=3))
     assert sim.G.shape[0] == 12
     sim.survey = crosswell_survey(2, n_rx=5)
     assert sim.G.shape[0] == 20
@@ -107,9 +107,9 @@ def test_rejects_wrong_survey_type():
     from simpeg.survey import BaseSurvey
 
     with pytest.raises(TypeError):
-        seismic.SimulationStraightRay(mesh(2, "tensor"), survey=BaseSurvey([]))
+        traveltime.SimulationStraightRay(mesh(2, "tensor"), survey=BaseSurvey([]))
 
 
 def test_rejects_1d_mesh():
     with pytest.raises(ValueError, match="2D or 3D"):
-        seismic.SimulationStraightRay(discretize.TensorMesh([5]))
+        traveltime.SimulationStraightRay(discretize.TensorMesh([5]))

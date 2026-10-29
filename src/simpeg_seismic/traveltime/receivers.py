@@ -6,9 +6,9 @@ from simpeg.survey import BaseRx
 class Traveltime(BaseRx):
     """First-arrival traveltime receivers.
 
-    :class:`simpeg_seismic.SimulationStraightRay` only uses the locations.
+    :class:`simpeg_seismic.traveltime.SimulationStraightRay` only uses the locations.
     For simulations that solve for traveltimes on the mesh, such as
-    :class:`simpeg_seismic.SimulationEikonal`, the receiver evaluates the
+    :class:`simpeg_seismic.traveltime.SimulationEikonal`, the receiver evaluates the
     fields with :meth:`eval` and :meth:`evalDeriv`.
 
     Parameters
@@ -27,9 +27,9 @@ class Traveltime(BaseRx):
 
         Parameters
         ----------
-        src : simpeg_seismic.sources.PointSource
+        src : simpeg_seismic.traveltime.sources.PointSource
             The source.
-        simulation : simpeg_seismic.SimulationEikonal
+        simulation : simpeg_seismic.traveltime.SimulationEikonal
             The simulation.
 
         Returns
@@ -47,12 +47,12 @@ class Traveltime(BaseRx):
 
         Parameters
         ----------
-        src : simpeg_seismic.sources.PointSource
+        src : simpeg_seismic.traveltime.sources.PointSource
             The source.
         mesh : discretize.TensorMesh
             The mesh (taken from the fields' simulation; kept for SimPEG's
             receiver signature).
-        f : simpeg_seismic.simulation.EikonalFields
+        f : simpeg_seismic.traveltime.simulation.EikonalFields
             The fields.
 
         Returns
@@ -66,11 +66,11 @@ class Traveltime(BaseRx):
 
         Parameters
         ----------
-        src : simpeg_seismic.sources.PointSource
+        src : simpeg_seismic.traveltime.sources.PointSource
             The source.
         mesh : discretize.TensorMesh
             The mesh (kept for SimPEG's receiver signature).
-        f : simpeg_seismic.simulation.EikonalFields
+        f : simpeg_seismic.traveltime.simulation.EikonalFields
             The fields.
         v : numpy.ndarray
             Vector on the nodes, or on the data when ``adjoint`` is True.

@@ -6,13 +6,13 @@ from discretize import TensorMesh
 from simpeg.fields import Fields
 from simpeg.utils import validate_float, validate_integer, validate_type
 
-from ..utils._mesh import axis_nodes, check_points_inside
+from ...utils._mesh import axis_nodes, check_points_inside
 from .base import BaseTraveltimeSimulation
 
 
 def _kernels():
     try:
-        from ..utils import _eikonal_numba
+        from ...utils import _eikonal_numba
     except ImportError as err:
         raise ImportError("SimulationEikonal requires numba.") from err
     return _eikonal_numba
@@ -121,7 +121,7 @@ class SimulationEikonal(BaseTraveltimeSimulation):
     ----------
     mesh : discretize.TensorMesh
         A 2D or 3D tensor mesh that contains every source and receiver.
-    survey : simpeg_seismic.Survey
+    survey : simpeg_seismic.traveltime.Survey
         The survey.
     slowness : numpy.ndarray, optional
         Slowness (s/m) on the cells.
@@ -315,7 +315,7 @@ class SimulationEikonal(BaseTraveltimeSimulation):
         -------
         (nD, n_sources * n_nodes) scipy.sparse.csr_matrix
             Block diagonal, one block per source; see
-            :meth:`simpeg_seismic.receivers.Traveltime.projection`.
+            :meth:`simpeg_seismic.traveltime.receivers.Traveltime.projection`.
         """
         if getattr(self, "_projection", None) is None:
             blocks = []

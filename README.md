@@ -4,28 +4,33 @@ Seismic forward simulations that plug into [SimPEG](https://simpeg.xyz).
 
 ## Layout
 
-The package follows the layout of `simpeg.electromagnetics`: the survey,
-sources and receivers are shared, and the simulations sit side by side.
+The package follows the layout of `simpeg.electromagnetics`: each kind of
+data has its own subpackage with its survey, sources, receivers and
+simulations, and shared code lives in `utils`.
 
 ```python
-import simpeg_seismic as seismic
+from simpeg_seismic import traveltime
 
-rx = seismic.receivers.Traveltime(receiver_locations)
-src = seismic.sources.PointSource([rx], location=source_location)
-survey = seismic.Survey([src])
-sim = seismic.SimulationStraightRay(mesh, survey=survey, slownessMap=slowness_map)
+rx = traveltime.receivers.Traveltime(receiver_locations)
+src = traveltime.sources.PointSource([rx], location=source_location)
+survey = traveltime.Survey([src])
+sim = traveltime.SimulationEikonal(mesh, survey=survey, slownessMap=slowness_map)
 ```
 
-- `survey`, `sources`, `receivers`: first-arrival traveltime surveys.
-- `simulation`:
+- `traveltime`: first-arrival traveltimes.
+  - `Survey`, `sources.PointSource`, `receivers.Traveltime`.
   - `SimulationStraightRay`: straight-ray traveltimes on 2D and 3D
     `discretize.TensorMesh` and `discretize.TreeMesh`.
   - `SimulationEikonal`: first-arrival traveltimes from the factored eikonal
     equation (first-order Godunov upwind scheme, fast sweeping; exact in a
     homogeneous medium), with exact discrete adjoint-state sensitivities, on
-    2D and 3D `discretize.TensorMesh`. Requires numba.
-- `utils`: ray-cell intersection lengths (`ray_cell_length_matrix`), with an
-  optional numba engine.
+    2D and 3D `discretize.TensorMesh`. Topography through
+    `simpeg.maps.InjectActiveCells`. Requires numba.
+- `utils`: ray-cell intersection lengths (`ray_cell_length_matrix`, with an
+  optional numba engine), the eikonal kernels and mesh helpers.
+
+Planned: `frequency_domain` (Helmholtz, FWI) and `time_domain` (acoustic wave
+equation), sharing acoustic operators.
 
 ## Examples
 

@@ -3,15 +3,15 @@
 import numpy as np
 from discretize.tests import check_derivative
 
-import simpeg_seismic as seismic
+from simpeg_seismic import traveltime
 
 
 def make_survey(source_locations, receiver_locations):
     """Survey where every source records at every receiver location."""
-    receivers = [seismic.receivers.Traveltime(np.atleast_2d(receiver_locations))]
-    return seismic.Survey(
+    receivers = [traveltime.receivers.Traveltime(np.atleast_2d(receiver_locations))]
+    return traveltime.Survey(
         [
-            seismic.sources.PointSource(receiver_list=receivers, location=loc)
+            traveltime.sources.PointSource(receiver_list=receivers, location=loc)
             for loc in source_locations
         ]
     )

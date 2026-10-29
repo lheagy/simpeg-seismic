@@ -7,11 +7,11 @@ from simpeg import maps
 
 pytest.importorskip("numba")
 
-import simpeg_seismic as seismic  # noqa: E402
+from simpeg_seismic import traveltime  # noqa: E402
 
 
 def simulation(mesh, survey, mapping=None, **kwargs):
-    return seismic.SimulationEikonal(
+    return traveltime.SimulationEikonal(
         mesh,
         survey=survey,
         slownessMap=maps.IdentityMap(mesh) if mapping is None else mapping,
@@ -261,7 +261,7 @@ def test_matches_straight_ray_in_homogeneous_model():
         np.c_[np.full(6, 20.0), np.linspace(-29, -1, 6)],
     )
     s = np.full(mesh.n_cells, 1 / 2500.0)
-    sim_sr = seismic.SimulationStraightRay(
+    sim_sr = traveltime.SimulationStraightRay(
         mesh, survey=survey, slownessMap=maps.IdentityMap(mesh)
     )
     np.testing.assert_allclose(
@@ -279,7 +279,7 @@ def test_not_converged_warns():
 def test_rejects_tree_mesh():
     mesh = discretize.TreeMesh([np.ones(8), np.ones(8)])
     with pytest.raises(TypeError):
-        seismic.SimulationEikonal(mesh)
+        traveltime.SimulationEikonal(mesh)
 
 
 def notch_problem(h=0.5):
@@ -295,7 +295,7 @@ def notch_problem(h=0.5):
     mapping = maps.InjectActiveCells(mesh, active, air_slowness) * maps.ReciprocalMap(
         nP=int(active.sum())
     )
-    sim = seismic.SimulationEikonal(mesh, survey=survey, slownessMap=mapping)
+    sim = traveltime.SimulationEikonal(mesh, survey=survey, slownessMap=mapping)
     corners = np.array([[15.0, 5.0], [25.0, 5.0]])
     path = (
         np.linalg.norm(corners[0] - source)
@@ -348,7 +348,7 @@ def test_fields_interface(factored):
     s = 1 / 1500.0
     f = sim.fields(np.full(mesh.n_cells, s))
 
-    assert isinstance(f, seismic.simulation.EikonalFields)
+    assert isinstance(f, traveltime.simulation.EikonalFields)
     T = f[:, "T"]
     assert T.shape == (mesh.n_nodes, 2)
     np.testing.assert_array_equal(f[survey.source_list[1], "T"][:, 0], T[:, 1])

@@ -5,22 +5,22 @@ matplotlib.use("Agg")
 import numpy as np
 import pytest
 
-import simpeg_seismic as seismic
+from simpeg_seismic import traveltime
 
 
 def survey(dim):
     rng = np.random.default_rng(0)
     source_list = [
-        seismic.sources.PointSource(
+        traveltime.sources.PointSource(
             receiver_list=[
-                seismic.receivers.Traveltime(rng.uniform(size=(3, dim))),
-                seismic.receivers.Traveltime(rng.uniform(size=(2, dim))),
+                traveltime.receivers.Traveltime(rng.uniform(size=(3, dim))),
+                traveltime.receivers.Traveltime(rng.uniform(size=(2, dim))),
             ],
             location=rng.uniform(size=dim),
         )
         for _ in range(2)
     ]
-    return seismic.Survey(source_list)
+    return traveltime.Survey(source_list)
 
 
 @pytest.mark.parametrize("dim", [2, 3])
@@ -45,9 +45,9 @@ def test_plot(dim):
 
 def test_point_source_requires_location():
     with pytest.raises(TypeError, match="location"):
-        seismic.sources.PointSource(receiver_list=[])
+        traveltime.sources.PointSource(receiver_list=[])
 
 
 def test_aliases():
-    assert seismic.Src is seismic.sources
-    assert seismic.Rx is seismic.receivers
+    assert traveltime.Src is traveltime.sources
+    assert traveltime.Rx is traveltime.receivers

@@ -1,36 +1,20 @@
 """
 Seismic forward simulations for SimPEG.
 
-Usually imported as ``import simpeg_seismic as seismic``.
+Usually imported as ``import simpeg_seismic as seismic``. Like
+``simpeg.electromagnetics``, each kind of data has its own subpackage with
+its survey, sources, receivers and simulations.
 
-Survey
-------
-Survey
-sources.PointSource
-receivers.Traveltime
-
-Simulations
+Subpackages
 -----------
-SimulationStraightRay
-SimulationEikonal
+traveltime
+    First-arrival traveltimes: straight-ray and eikonal simulations.
+utils
+    Ray geometry, eikonal kernels and mesh helpers.
 """
 
-from . import receivers, simulation, sources, utils
-from . import receivers as Rx
-from . import sources as Src
-from .simulation import SimulationEikonal, SimulationStraightRay
-from .survey import Survey
+from . import traveltime, utils
 
 __version__ = "0.0.1.dev0"
 
-__all__ = [
-    "Survey",
-    "SimulationStraightRay",
-    "SimulationEikonal",
-    "sources",
-    "receivers",
-    "Src",
-    "Rx",
-    "simulation",
-    "utils",
-]
+__all__ = ["traveltime", "utils"]

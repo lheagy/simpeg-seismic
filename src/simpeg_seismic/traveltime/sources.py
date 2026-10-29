@@ -6,7 +6,7 @@ class PointSource(BaseSrc):
 
     Parameters
     ----------
-    receiver_list : list of simpeg_seismic.receivers.Traveltime
+    receiver_list : list of simpeg_seismic.traveltime.receivers.Traveltime
         Receivers that record this source.
     location : (dim,) numpy.ndarray
         Location of the source.

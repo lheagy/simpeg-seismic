@@ -5,7 +5,7 @@ import scipy.sparse as sp
 
 from simpeg.utils import validate_active_indices
 
-from ..utils import ray_cell_length_matrix
+from ...utils import ray_cell_length_matrix
 from .base import BaseTraveltimeSimulation
 
 
@@ -25,7 +25,7 @@ class SimulationStraightRay(BaseTraveltimeSimulation):
     ----------
     mesh : discretize.TensorMesh or discretize.TreeMesh
         A 2D or 3D mesh that contains every source and receiver.
-    survey : simpeg_seismic.Survey
+    survey : simpeg_seismic.traveltime.Survey
         The survey.
     slowness : numpy.ndarray, optional
         Slowness (s/m) on the active cells.

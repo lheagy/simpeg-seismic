@@ -7,7 +7,7 @@ class Survey(BaseSurvey):
 
     Parameters
     ----------
-    source_list : list of simpeg_seismic.sources.PointSource
+    source_list : list of simpeg_seismic.traveltime.sources.PointSource
         Sources, each with its list of receivers.
     """
 
