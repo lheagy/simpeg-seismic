@@ -20,6 +20,10 @@ sim = seismic.SimulationStraightRay(mesh, survey=survey, slownessMap=slowness_ma
 - `simulation`:
   - `SimulationStraightRay`: straight-ray traveltimes on 2D and 3D
     `discretize.TensorMesh` and `discretize.TreeMesh`.
+  - `SimulationEikonal`: first-arrival traveltimes from the factored eikonal
+    equation (first-order Godunov upwind scheme, fast sweeping; exact in a
+    homogeneous medium), with exact discrete adjoint-state sensitivities, on
+    2D and 3D `discretize.TensorMesh`. Requires numba.
 - `utils`: ray-cell intersection lengths (`ray_cell_length_matrix`), with an
   optional numba engine.
 
