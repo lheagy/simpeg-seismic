@@ -51,6 +51,10 @@ examples:
   `TensorMesh`, inverting for slowness.
 - `straight_ray_3d_crosshole.ipynb`: 3D tomography between four boreholes and
   a surface array on a `TreeMesh`, inverting for velocity.
+- `fwi_2d_frequency_domain.ipynb`: 2D full-waveform inversion: eikonal
+  traveltime tomography for the starting model, then frequency-domain FWI
+  from low to high frequencies, and a demonstration of cycle skipping. Runs
+  in under a minute on a laptop.
 
 ## Install for development
 

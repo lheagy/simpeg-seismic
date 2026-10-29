@@ -323,9 +323,17 @@ class SimulationAcoustic(BasePDESimulation):
             )
 
     def _check_sampling(self):
-        """Warn when the mesh has too few nodes per wavelength."""
-        h_max = max(np.max(h) for h in self.mesh.h)
-        v_min = 1.0 / np.max(self.slowness)
+        """Warn when the mesh inside the PML has too few nodes per wavelength.
+
+        Cells in the PML are left out, so the layer can use expanding
+        padding cells.
+        """
+        n = self.pml_cells
+        h_max = max(np.max(h[n : len(h) - n]) for h in self.mesh.h)
+        interior = ~acoustic.pml_inside(
+            self.mesh, n, self.mesh.cell_centers, free_surface=self.free_surface
+        )
+        v_min = 1.0 / np.max(self.slowness[interior])
         points = v_min / (max(self.survey.frequencies) * h_max)
         if points < _MIN_POINTS_PER_WAVELENGTH:
             warnings.warn(
