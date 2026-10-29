@@ -106,13 +106,14 @@ def test_fixed_point_of_local_solver(dim, factored):
     g = sim.source_geometry
     coef = np.zeros((8, 3))
     grad = np.empty(3)
+    breakpoints = np.empty(9)
     for j in range(3):
         fixed = g["fixed_idx"][g["fixed_ptr"][j] : g["fixed_ptr"][j + 1]]
         for i in np.setdiff1d(np.arange(sim.mesh.n_nodes), fixed):
             kernels._stencil(
                 f["tau"][j], i, *sim._nodes, g["source_xyz"][j], factored, coef, grad
             )
-            t, _ = kernels._local_solve(coef, f["slowness_nodes"][i])
+            t, _ = kernels._local_solve(coef, f["slowness_nodes"][i], breakpoints)
             assert t == pytest.approx(f["tau"][j, i], rel=1e-9)
 
 

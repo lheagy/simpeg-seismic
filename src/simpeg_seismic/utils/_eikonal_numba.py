@@ -46,12 +46,12 @@ from numba import njit, prange
 _NONE, _MINUS, _PLUS = 0, 1, 2
 
 
-@njit(cache=True)
+@njit(cache=True, inline="always")
 def _branch(code, d):
     return (code // 3**d) % 3
 
 
-@njit(cache=True)
+@njit(cache=True, inline="always")
 def _distance(ix, iy, iz, nodes_x, nodes_y, nodes_z, src, factored, grad):
     """Distance to the source and its gradient (``D = 1``, zero gradient if not factored)."""
     if not factored:
@@ -70,7 +70,7 @@ def _distance(ix, iy, iz, nodes_x, nodes_y, nodes_z, src, factored, grad):
     return D
 
 
-@njit(cache=True)
+@njit(cache=True, inline="always")
 def _axis(tau, i, idx, n, stride, nodes, D, g, coef, d):
     """One-sided derivative coefficients along one axis.
 
@@ -95,10 +95,29 @@ def _axis(tau, i, idx, n, stride, nodes, D, g, coef, d):
 @njit(cache=True)
 def _stencil(tau, i, nodes_x, nodes_y, nodes_z, src, factored, coef, grad):
     """Fill the coefficients of node ``i`` and return ``D_i``."""
+    nx, ny = nodes_x.size, nodes_y.size
+    return _stencil_at(
+        tau,
+        i,
+        i % nx,
+        (i // nx) % ny,
+        i // (nx * ny),
+        nodes_x,
+        nodes_y,
+        nodes_z,
+        src,
+        factored,
+        coef,
+        grad,
+    )
+
+
+@njit(cache=True, inline="always")
+def _stencil_at(
+    tau, i, ix, iy, iz, nodes_x, nodes_y, nodes_z, src, factored, coef, grad
+):
+    """``_stencil`` for a node whose subscripts are already known."""
     nx, ny, nz = nodes_x.size, nodes_y.size, nodes_z.size
-    ix = i % nx
-    iy = (i // nx) % ny
-    iz = i // (nx * ny)
     D = _distance(ix, iy, iz, nodes_x, nodes_y, nodes_z, src, factored, grad)
     _axis(tau, i, ix, nx, 1, nodes_x, D, grad[0], coef, 0)
     _axis(tau, i, iy, ny, nx, nodes_y, D, grad[1], coef, 1)
@@ -106,7 +125,7 @@ def _stencil(tau, i, nodes_x, nodes_y, nodes_z, src, factored, coef, grad):
     return D
 
 
-@njit(cache=True)
+@njit(cache=True, inline="always")
 def _consistent(coef, code, t):
     """Whether every axis takes the branch ``code`` asks for at ``tau_i = t``."""
     for d in range(3):
@@ -124,7 +143,7 @@ def _consistent(coef, code, t):
     return True
 
 
-@njit(cache=True)
+@njit(cache=True, inline="always")
 def _term(coef, d, t):
     """Godunov term of axis ``d`` at ``tau_i = t``, and the branch giving it."""
     value = 0.0
@@ -142,7 +161,7 @@ def _term(coef, d, t):
     return value, b
 
 
-@njit(cache=True)
+@njit(cache=True, inline="always")
 def _monotone(coef):
     """Whether every one-sided term increases with ``tau_i`` (true for D > h)."""
     for d in range(3):
@@ -153,15 +172,93 @@ def _monotone(coef):
     return True
 
 
+@njit(cache=True, inline="always")
+def _first_branch(coef, d):
+    """The branch of axis ``d`` that becomes positive first as ``t`` increases.
+
+    Returns the ``t`` where it becomes positive, its slope ``alpha`` and offset
+    ``beta`` (the term is ``alpha t - beta``), and the branch.
+    """
+    z = np.inf
+    alpha = 1.0
+    beta = 0.0
+    b = _NONE
+    if coef[6, d]:
+        z = coef[1, d] / coef[0, d]
+        alpha = coef[0, d]
+        beta = coef[1, d]
+        b = _MINUS
+    if coef[7, d]:
+        z_plus = coef[3, d] / coef[2, d]
+        if z_plus < z:
+            z = z_plus
+            alpha = -coef[2, d]
+            beta = -coef[3, d]
+            b = _PLUS
+    return z, alpha, beta, b
+
+
 @njit(cache=True)
-def _monotone_solve(coef, s):
+def _monotone_solve(coef, s, breakpoints):
+    """Root of ``sum_d term_d(t)^2 = s^2`` when every term increases with ``t``.
+
+    Fast path, as for the classic scheme: give each axis the branch that
+    becomes positive first, add the axes in the order they become positive
+    and stop when the next one would not be active. The answer is checked;
+    if a branch switched before the root it falls back to ``_bracket_solve``.
+    """
+    z0, a0, b0, c0 = _first_branch(coef, 0)
+    z1, a1, b1, c1 = _first_branch(coef, 1)
+    z2, a2, b2, c2 = _first_branch(coef, 2)
+    d0, d1, d2 = 0, 1, 2
+    # sort the three axes by z
+    if z1 < z0:
+        z0, a0, b0, c0, d0, z1, a1, b1, c1, d1 = z1, a1, b1, c1, d1, z0, a0, b0, c0, d0
+    if z2 < z1:
+        z1, a1, b1, c1, d1, z2, a2, b2, c2, d2 = z2, a2, b2, c2, d2, z1, a1, b1, c1, d1
+        if z1 < z0:
+            z0, a0, b0, c0, d0, z1, a1, b1, c1, d1 = (
+                z1,
+                a1,
+                b1,
+                c1,
+                d1,
+                z0,
+                a0,
+                b0,
+                c0,
+                d0,
+            )
+    if z0 == np.inf:
+        return np.inf, 0
+
+    t = (b0 + s) / a0
+    code = c0 * 3**d0
+    if t > z1:
+        A = a0 * a0 + a1 * a1
+        B = a0 * b0 + a1 * b1
+        C = b0 * b0 + b1 * b1 - s * s
+        t = (B + np.sqrt(max(B * B - A * C, 0.0))) / A
+        code += c1 * 3**d1
+        if t > z2:
+            A += a2 * a2
+            B += a2 * b2
+            C += b2 * b2
+            t = (B + np.sqrt(max(B * B - A * C, 0.0))) / A
+            code += c2 * 3**d2
+    if _consistent(coef, code, t):
+        return t, code
+    return _bracket_solve(coef, s, breakpoints)
+
+
+@njit(cache=True)
+def _bracket_solve(coef, s, breakpoints):
     """Root of ``sum_d term_d(t)^2 = s^2`` when every term increases with ``t``.
 
     Each term is convex and piecewise linear, so the left side increases;
     the root is bracketed between sorted breakpoints, where the branches are
     fixed, and found with one quadratic.
     """
-    breakpoints = np.empty(9)
     nb = 0
     for d in range(3):
         if coef[6, d]:
@@ -176,7 +273,14 @@ def _monotone_solve(coef, s):
             nb += 1
     if nb == 0:
         return np.inf, 0
-    breakpoints[:nb].sort()
+    # insertion sort: at most 9 values
+    for q in range(1, nb):
+        value = breakpoints[q]
+        r = q - 1
+        while r >= 0 and breakpoints[r] > value:
+            breakpoints[r + 1] = breakpoints[r]
+            r -= 1
+        breakpoints[r + 1] = value
 
     # the left side is zero below the first breakpoint
     k = nb
@@ -210,14 +314,15 @@ def _monotone_solve(coef, s):
 
 
 @njit(cache=True)
-def _local_solve(coef, s):
+def _local_solve(coef, s, breakpoints):
     """Solution for ``tau_i`` and its branch code (inf and 0 if there is none).
 
     Uses the bracketing solve when the terms are monotone, and otherwise the
-    smallest consistent root over all branch combinations.
+    smallest consistent root over all branch combinations. ``breakpoints`` is
+    a work array of length 9.
     """
     if _monotone(coef):
-        return _monotone_solve(coef, s)
+        return _monotone_solve(coef, s, breakpoints)
     best = np.inf
     best_code = 0
     for code in range(1, 27):
@@ -249,6 +354,172 @@ def _local_solve(coef, s):
     return best, best_code
 
 
+@njit(cache=True, inline="always")
+def _axis_lines(tau, i, idx, n, stride, nodes, D, g):
+    """The one-sided lines of one axis as scalars (same values as ``_axis``).
+
+    Returns has_m, a_m, b_m, has_p, a_p, b_p.
+    """
+    has_m = False
+    a_m = 0.0
+    b_m = 0.0
+    has_p = False
+    a_p = 0.0
+    b_p = 0.0
+    if idx > 0:
+        t = tau[i - stride]
+        if t < np.inf:
+            r = D / (nodes[idx] - nodes[idx - 1])
+            has_m = True
+            a_m = g + r
+            b_m = r * t
+    if idx < n - 1:
+        t = tau[i + stride]
+        if t < np.inf:
+            r = D / (nodes[idx + 1] - nodes[idx])
+            has_p = True
+            a_p = g - r
+            b_p = -r * t
+    return has_m, a_m, b_m, has_p, a_p, b_p
+
+
+@njit(cache=True, inline="always")
+def _first_line(has_m, a_m, b_m, has_p, a_p, b_p):
+    """Scalar version of ``_first_branch``: returns z, alpha, beta, branch."""
+    z = np.inf
+    alpha = 1.0
+    beta = 0.0
+    b = _NONE
+    if has_m:
+        z = b_m / a_m
+        alpha = a_m
+        beta = b_m
+        b = _MINUS
+    if has_p:
+        z_plus = b_p / a_p
+        if z_plus < z:
+            z = z_plus
+            alpha = -a_p
+            beta = -b_p
+            b = _PLUS
+    return z, alpha, beta, b
+
+
+@njit(cache=True, inline="always")
+def _takes_branch(b, t, has_m, a_m, b_m, has_p, a_p, b_p):
+    """Scalar version of the per-axis check in ``_consistent``."""
+    p_minus = a_m * t - b_m if has_m else -np.inf
+    p_plus = a_p * t - b_p if has_p else np.inf
+    if b == _MINUS:
+        return p_minus >= 0.0 and p_minus >= -p_plus
+    if b == _PLUS:
+        return p_plus <= 0.0 and -p_plus >= p_minus
+    return p_minus <= 0.0 and p_plus >= 0.0
+
+
+@njit(cache=True, inline="always")
+def _sweep_update(tau, i, ix, iy, iz, nodes_x, nodes_y, nodes_z, src, factored, s):
+    """Local solve for the sweep, using scalars only.
+
+    The same fast path as ``_monotone_solve``, without the work arrays the
+    general solver needs; this is where the forward solve spends its time.
+    Returns NaN when the general solver ``_local_solve`` is needed (near the
+    source, or when a branch switches before the root).
+    """
+    nx, ny, nz = nodes_x.size, nodes_y.size, nodes_z.size
+    D = 1.0
+    gx = 0.0
+    gy = 0.0
+    gz = 0.0
+    if factored:
+        cx = nodes_x[ix] - src[0]
+        cy = nodes_y[iy] - src[1]
+        cz = nodes_z[iz] - src[2]
+        D = np.sqrt(cx * cx + cy * cy + cz * cz)
+        if D == 0.0:
+            return np.nan
+        gx = cx / D
+        gy = cy / D
+        gz = cz / D
+    hmx, amx, bmx, hpx, apx, bpx = _axis_lines(tau, i, ix, nx, 1, nodes_x, D, gx)
+    hmy, amy, bmy, hpy, apy, bpy = _axis_lines(tau, i, iy, ny, nx, nodes_y, D, gy)
+    hmz, amz, bmz, hpz, apz, bpz = _axis_lines(tau, i, iz, nz, nx * ny, nodes_z, D, gz)
+    # monotone: every one-sided term increases with tau_i
+    if (
+        (hmx and amx <= 0.0)
+        or (hpx and apx >= 0.0)
+        or (hmy and amy <= 0.0)
+        or (hpy and apy >= 0.0)
+        or (hmz and amz <= 0.0)
+        or (hpz and apz >= 0.0)
+    ):
+        return np.nan
+
+    z0, a0, b0, c0 = _first_line(hmx, amx, bmx, hpx, apx, bpx)
+    z1, a1, b1, c1 = _first_line(hmy, amy, bmy, hpy, apy, bpy)
+    z2, a2, b2, c2 = _first_line(hmz, amz, bmz, hpz, apz, bpz)
+    d0, d1, d2 = 0, 1, 2
+    if z1 < z0:
+        z0, a0, b0, c0, d0, z1, a1, b1, c1, d1 = z1, a1, b1, c1, d1, z0, a0, b0, c0, d0
+    if z2 < z1:
+        z1, a1, b1, c1, d1, z2, a2, b2, c2, d2 = z2, a2, b2, c2, d2, z1, a1, b1, c1, d1
+        if z1 < z0:
+            z0, a0, b0, c0, d0, z1, a1, b1, c1, d1 = (
+                z1,
+                a1,
+                b1,
+                c1,
+                d1,
+                z0,
+                a0,
+                b0,
+                c0,
+                d0,
+            )
+    if z0 == np.inf:
+        return np.inf
+
+    t = (b0 + s) / a0
+    n_active = 1
+    if t > z1:
+        A = a0 * a0 + a1 * a1
+        B = a0 * b0 + a1 * b1
+        C = b0 * b0 + b1 * b1 - s * s
+        t = (B + np.sqrt(max(B * B - A * C, 0.0))) / A
+        n_active = 2
+        if t > z2:
+            A += a2 * a2
+            B += a2 * b2
+            C += b2 * b2
+            t = (B + np.sqrt(max(B * B - A * C, 0.0))) / A
+            n_active = 3
+
+    # the branch of each axis, then check that each axis really takes it at t
+    branches = (_NONE, _NONE, _NONE)
+    branches = _with_branch(branches, d0, c0)
+    if n_active > 1:
+        branches = _with_branch(branches, d1, c1)
+    if n_active > 2:
+        branches = _with_branch(branches, d2, c2)
+    if (
+        _takes_branch(branches[0], t, hmx, amx, bmx, hpx, apx, bpx)
+        and _takes_branch(branches[1], t, hmy, amy, bmy, hpy, apy, bpy)
+        and _takes_branch(branches[2], t, hmz, amz, bmz, hpz, apz, bpz)
+    ):
+        return t
+    return np.nan
+
+
+@njit(cache=True, inline="always")
+def _with_branch(branches, d, b):
+    """``branches`` with entry ``d`` set to ``b``."""
+    if d == 0:
+        return (b, branches[1], branches[2])
+    if d == 1:
+        return (branches[0], b, branches[2])
+    return (branches[0], branches[1], b)
+
+
 @njit(cache=True)
 def _drop_zero_branches(coef, code, t):
     """Set the branches whose derivative is exactly zero to none."""
@@ -270,6 +541,7 @@ def _sweep(
     """Fast sweeping in all 2**dim orderings until tau stops changing."""
     nx, ny, nz = nodes_x.size, nodes_y.size, nodes_z.size
     coef = np.zeros((8, 3))
+    breakpoints = np.empty(9)
     grad = np.empty(3)
     for iteration in range(max_iterations):
         max_change = 0.0
@@ -284,10 +556,35 @@ def _sweep(
                         i = ix + nx * (iy + ny * iz)
                         if fixed[i]:
                             continue
-                        _stencil(
-                            tau, i, nodes_x, nodes_y, nodes_z, src, factored, coef, grad
+                        t = _sweep_update(
+                            tau,
+                            i,
+                            ix,
+                            iy,
+                            iz,
+                            nodes_x,
+                            nodes_y,
+                            nodes_z,
+                            src,
+                            factored,
+                            s[i],
                         )
-                        t, _ = _local_solve(coef, s[i])
+                        if np.isnan(t):
+                            _stencil_at(
+                                tau,
+                                i,
+                                ix,
+                                iy,
+                                iz,
+                                nodes_x,
+                                nodes_y,
+                                nodes_z,
+                                src,
+                                factored,
+                                coef,
+                                grad,
+                            )
+                            t, _ = _local_solve(coef, s[i], breakpoints)
                         if t < tau[i]:
                             if tau[i] == np.inf:
                                 newly_reached = True
@@ -447,6 +744,7 @@ def solve(
             max_iterations,
         )
         coef = np.zeros((8, 3))
+        breakpoints = np.empty(9)
         grad = np.empty(3)
         for i in range(n):
             D = _stencil(
@@ -454,7 +752,7 @@ def solve(
             )
             T[j, i] = D * tau_j[i]
             if not fixed[i]:
-                _, code = _local_solve(coef, s[i])
+                _, code = _local_solve(coef, s[i], breakpoints)
                 branch[j, i] = _drop_zero_branches(coef, code, tau_j[i])
         n_cyclic[j] = _strong_components(
             branch[j], fixed, nx, ny, order[j], component_start[j]
