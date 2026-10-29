@@ -1,0 +1,51 @@
+# Run the test suite on every push and pull request
+# =================================================
+
+name: Tests
+
+on:
+  push:
+  pull_request:
+
+permissions: {}
+
+# Cancel an in-progress run when a newer commit is pushed to the same branch
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Python ${{ matrix.python }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.10", "3.11", "3.12", "3.13"]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          # this job doesn't need to push to GitHub
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install package and test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[test]"
+
+      - name: List installed packages
+        run: python -m pip list
+
+      - name: Run tests
+        env:
+          MPLBACKEND: Agg
+        run: python -m pytest
