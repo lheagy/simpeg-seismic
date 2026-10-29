@@ -3,20 +3,20 @@ import numpy as np
 import pytest
 import scipy.sparse as sp
 
-from simpeg_seismic.straight_ray import _ray_geometry
-from simpeg_seismic.straight_ray._ray_geometry import (
+from simpeg_seismic.utils import ray_geometry
+from simpeg_seismic.utils.ray_geometry import (
     _mesh_bounds,
     _slab_clip_lengths,
     ray_cell_length_matrix,
 )
 
 
-@pytest.fixture(autouse=True, params=_ray_geometry.ENGINES)
+@pytest.fixture(autouse=True, params=ray_geometry.ENGINES)
 def engine(request, monkeypatch):
     """Run every test with each tensor-mesh implementation."""
     if request.param == "numba":
         pytest.importorskip("numba")
-    monkeypatch.setattr(_ray_geometry, "DEFAULT_ENGINE", request.param)
+    monkeypatch.setattr(ray_geometry, "DEFAULT_ENGINE", request.param)
     return request.param
 
 
@@ -226,7 +226,7 @@ def test_numba_matches_numpy(mesh_name):
     mesh = MESHES[mesh_name]()
     x0, x1 = random_rays(mesh, 300, seed=4)
     # add rays along node planes, through nodes and of zero length
-    nodes = [_ray_geometry._axis_nodes(mesh, d) for d in range(mesh.dim)]
+    nodes = [ray_geometry._axis_nodes(mesh, d) for d in range(mesh.dim)]
     corner = np.array([n[2] for n in nodes])
     x0 = np.vstack([x0, corner, corner, x0[0]])
     x1 = np.vstack([x1, np.array([n[-3] for n in nodes]), corner, x0[0]])
@@ -254,12 +254,12 @@ def test_matrix_matches_coo_triplets(mesh_name):
     for split in (False, True):
         if split:
             # ray 7 on an interior node plane: two copies
-            node = _ray_geometry._axis_nodes(mesh, 1)[2]
+            node = ray_geometry._axis_nodes(mesh, 1)[2]
             x0[7, 1] = x1[7, 1] = node
             x0[7, 0], x1[7, 0] = lo[0], hi[0]
             x0[7, 2:] = x1[7, 2:]
         G = ray_cell_length_matrix(mesh, x0, x1)
-        rays, cells, lengths = _ray_geometry.ray_cell_lengths(mesh, x0, x1)
+        rays, cells, lengths = ray_geometry.ray_cell_lengths(mesh, x0, x1)
         G_coo = sp.coo_matrix((lengths, (rays, cells)), shape=G.shape).tocsr()
         assert abs(G - G_coo).max() < 1e-12
         np.testing.assert_allclose(

@@ -12,7 +12,7 @@ import scipy.sparse as sp
 from discretize import TensorMesh, TreeMesh
 
 try:
-    from ._numba_kernels import tensor_mesh_lengths as _numba_tensor_mesh_lengths
+    from ._ray_geometry_numba import tensor_mesh_lengths as _numba_tensor_mesh_lengths
 except ImportError:
     _numba_tensor_mesh_lengths = None
 

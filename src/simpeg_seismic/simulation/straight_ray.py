@@ -2,16 +2,12 @@ import warnings
 
 import numpy as np
 import scipy.sparse as sp
-from discretize import TensorMesh, TreeMesh
-from simpeg import props
-from simpeg.simulation import LinearSimulation
-from simpeg.utils import validate_active_indices, validate_type
 
-from ._ray_geometry import ray_cell_length_matrix
-from .survey import Survey
+from ..utils import ray_cell_length_matrix
+from .base import BaseTraveltimeSimulation
 
 
-class Simulation(LinearSimulation):
+class SimulationStraightRay(BaseTraveltimeSimulation):
     r"""Straight-ray traveltime simulation.
 
     The traveltime of each datum is the integral of slowness along the
@@ -27,7 +23,7 @@ class Simulation(LinearSimulation):
     ----------
     mesh : discretize.TensorMesh or discretize.TreeMesh
         A 2D or 3D mesh that contains every source and receiver.
-    survey : simpeg_seismic.straight_ray.Survey
+    survey : simpeg_seismic.Survey
         The survey.
     slowness : numpy.ndarray, optional
         Slowness (s/m) on the active cells.
@@ -38,68 +34,7 @@ class Simulation(LinearSimulation):
         Cells that are part of the model. Defaults to all cells.
     """
 
-    slowness, slownessMap, slownessDeriv = props.Invertible("Slowness (s/m)")
-
-    def __init__(
-        self,
-        mesh,
-        survey=None,
-        slowness=None,
-        slownessMap=None,
-        active_cells=None,
-        **kwargs,
-    ):
-        self.mesh = mesh
-        self.active_cells = active_cells
-        super().__init__(survey=survey, **kwargs)
-        self.slowness = slowness
-        self.slownessMap = slownessMap
-
-    @property
-    def mesh(self):
-        """Mesh the slowness is defined on.
-
-        Returns
-        -------
-        discretize.TensorMesh or discretize.TreeMesh
-        """
-        return self._mesh
-
-    @mesh.setter
-    def mesh(self, value):
-        value = validate_type("mesh", value, (TensorMesh, TreeMesh), cast=False)
-        if value.dim not in (2, 3):
-            raise ValueError(
-                f"{type(self).__name__} mesh must be 2D or 3D, "
-                f"received a {value.dim}D mesh."
-            )
-        self._mesh = value
-        self._G = None
-
-    @LinearSimulation.survey.setter
-    def survey(self, value):
-        if value is not None:
-            value = validate_type("survey", value, Survey, cast=False)
-        LinearSimulation.survey.fset(self, value)
-        self._G = None
-
-    @property
-    def active_cells(self):
-        """Active cells of the mesh.
-
-        Returns
-        -------
-        (n_cells,) numpy.ndarray of bool
-        """
-        return self._active_cells
-
-    @active_cells.setter
-    def active_cells(self, value):
-        if value is None:
-            value = np.ones(self.mesh.n_cells, dtype=bool)
-        self._active_cells = validate_active_indices(
-            "active_cells", value, self.mesh.n_cells
-        )
+    def _reset(self):
         self._G = None
 
     @property
@@ -135,7 +70,19 @@ class Simulation(LinearSimulation):
         return self.G @ self.slowness
 
     def getJ(self, m, f=None):
-        # Docstring inherited from LinearSimulation.
+        r"""Sensitivity matrix :math:`\mathbf{G} \, \partial \mathbf{s} / \partial \mathbf{m}`.
+
+        Parameters
+        ----------
+        m : (n_param,) numpy.ndarray
+            The model parameters.
+        f : Ignored
+            Not used, present for API consistency.
+
+        Returns
+        -------
+        (nD, n_param) scipy.sparse matrix
+        """
         self.model = m
         return self.G @ self.slownessDeriv
 

@@ -2,10 +2,26 @@
 
 Seismic forward simulations that plug into [SimPEG](https://simpeg.xyz).
 
-## Modules
+## Layout
 
-- `simpeg_seismic.straight_ray`: straight-ray traveltime tomography on 2D and
-  3D `discretize.TensorMesh` and `discretize.TreeMesh`.
+The package follows the layout of `simpeg.electromagnetics`: the survey,
+sources and receivers are shared, and the simulations sit side by side.
+
+```python
+import simpeg_seismic as seismic
+
+rx = seismic.receivers.Traveltime(receiver_locations)
+src = seismic.sources.PointSource([rx], location=source_location)
+survey = seismic.Survey([src])
+sim = seismic.SimulationStraightRay(mesh, survey=survey, slownessMap=slowness_map)
+```
+
+- `survey`, `sources`, `receivers`: first-arrival traveltime surveys.
+- `simulation`:
+  - `SimulationStraightRay`: straight-ray traveltimes on 2D and 3D
+    `discretize.TensorMesh` and `discretize.TreeMesh`.
+- `utils`: ray-cell intersection lengths (`ray_cell_length_matrix`), with an
+  optional numba engine.
 
 ## Examples
 
