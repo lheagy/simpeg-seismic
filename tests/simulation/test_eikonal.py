@@ -282,17 +282,53 @@ def test_rejects_tree_mesh():
         seismic.SimulationEikonal(mesh)
 
 
-def test_inactive_cells_not_supported():
-    mesh = discretize.TensorMesh([np.ones(10), np.ones(8)])
-    active = mesh.cell_centers[:, 1] < 6
-    sim = seismic.SimulationEikonal(
-        mesh,
-        survey=make_survey([[1.0, 1.0]], [[9.0, 5.0]]),
-        active_cells=active,
-        slownessMap=maps.IdentityMap(nP=int(active.sum())),
+def notch_problem(h=0.5):
+    """Ground with an air notch (x in [15, 25], z > 5) between source and receiver."""
+    mesh = discretize.TensorMesh(
+        [np.full(int(40 / h), h), np.full(int(10 / h), h)], origin=[0.0, 0.0]
     )
-    with pytest.raises(NotImplementedError):
-        sim.dpred(np.full(active.sum(), 1e-3))
+    x, z = mesh.cell_centers.T
+    active = ~((x > 15) & (x < 25) & (z > 5))
+    source, receiver = np.array([5.0, 9.5]), np.array([35.0, 9.5])
+    survey = make_survey([source], [receiver])
+    air_slowness = 1.0  # 1 m/s: far slower than any path through the ground
+    mapping = maps.InjectActiveCells(mesh, active, air_slowness) * maps.ReciprocalMap(
+        nP=int(active.sum())
+    )
+    sim = seismic.SimulationEikonal(mesh, survey=survey, slownessMap=mapping)
+    corners = np.array([[15.0, 5.0], [25.0, 5.0]])
+    path = (
+        np.linalg.norm(corners[0] - source)
+        + np.linalg.norm(corners[1] - corners[0])
+        + np.linalg.norm(receiver - corners[1])
+    )
+    return sim, active, path
+
+
+def test_topography_through_inject_active_cells():
+    """Air cells given a large slowness by the map: the first arrival goes
+    under the notch, diffracting around its corners."""
+    velocity = 2000.0
+    errors = []
+    for h in (0.5, 0.25):
+        sim, active, path = notch_problem(h)
+        d = sim.dpred(np.full(active.sum(), velocity))[0]
+        assert d > 30.0 / velocity  # slower than the straight line through the air
+        errors.append(d * velocity / path - 1)
+    # first order: nodes on the notch boundary average in the air slowness, so
+    # the notch is effectively about one node spacing larger
+    assert 0 < errors[0] < 0.03
+    assert errors[1] < 0.6 * errors[0]
+
+
+def test_adjoint_with_inject_active_cells():
+    sim, active, _ = notch_problem(h=1.0)
+    rng = np.random.default_rng(6)
+    model = rng.uniform(1500.0, 2500.0, active.sum())
+    assert_derivative(sim, model, dx=model * 1e-3 * rng.standard_normal(model.size))
+    assert_adjoint(sim, model, rng)
+    # inactive cells have no sensitivity because the model does not include them
+    assert sim.Jtvec(model, np.ones(1)).shape == (active.sum(),)
 
 
 def test_receiver_outside_mesh_raises():
@@ -327,3 +363,33 @@ def test_fields_interface(factored):
     assert f.n_iterations.shape == (2,)
     with pytest.raises(KeyError):
         f[:, "T"] = T
+
+
+@pytest.mark.parametrize("factored", [False, True])
+def test_receiver_eval(factored):
+    """SimPEG receiver interface: rx.eval gives the simulation's data and
+    rx.evalDeriv is consistent with its adjoint."""
+    mesh = discretize.TensorMesh([np.ones(12), np.ones(10)])
+    rng = np.random.default_rng(7)
+    survey = make_survey(rng.uniform(1, 9, (2, 2)), rng.uniform(0, 10, (5, 2)))
+    sim = simulation(mesh, survey, factored=factored)
+    model = rng.uniform(1 / 3000, 1 / 1000, mesh.n_cells)
+    f = sim.fields(model)
+    d = np.concatenate(
+        [
+            rx.eval(src, mesh, f)
+            for src in survey.source_list
+            for rx in src.receiver_list
+        ]
+    )
+    np.testing.assert_allclose(d, sim.dpred(model, f=f), rtol=1e-14)
+
+    src = survey.source_list[0]
+    rx = src.receiver_list[0]
+    u = rng.standard_normal(mesh.n_nodes)
+    w = rng.standard_normal(rx.nD)
+    np.testing.assert_allclose(
+        w @ rx.evalDeriv(src, mesh, f, u),
+        u @ rx.evalDeriv(src, mesh, f, w, adjoint=True),
+        rtol=1e-12,
+    )

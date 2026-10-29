@@ -1,8 +1,7 @@
-import numpy as np
 from discretize import TensorMesh, TreeMesh
 from simpeg import props
 from simpeg.simulation import BaseSimulation
-from simpeg.utils import validate_active_indices, validate_type
+from simpeg.utils import validate_type
 
 from ..survey import Survey
 
@@ -11,9 +10,8 @@ class BaseTraveltimeSimulation(BaseSimulation):
     """Base class for first-arrival traveltime simulations.
 
     Holds what every traveltime simulation shares: the slowness model, the
-    mesh, the survey and the active cells. Subclasses declare the mesh types
-    they support in ``_mesh_types`` and clear their cached quantities in
-    ``_reset``.
+    mesh and the survey. Subclasses declare the mesh types they support in
+    ``_mesh_types`` and clear their cached quantities in ``_reset``.
 
     Parameters
     ----------
@@ -22,12 +20,10 @@ class BaseTraveltimeSimulation(BaseSimulation):
     survey : simpeg_seismic.Survey
         The survey.
     slowness : numpy.ndarray, optional
-        Slowness (s/m) on the active cells.
+        Slowness (s/m).
     slownessMap : simpeg.maps.IdentityMap, optional
-        Mapping from the model to slowness on the active cells. Use a
+        Mapping from the model to slowness. Use a
         :class:`simpeg.maps.ReciprocalMap` to invert for velocity.
-    active_cells : numpy.ndarray of bool or int, optional
-        Cells that are part of the model. Defaults to all cells.
     """
 
     slowness, slownessMap, slownessDeriv = props.Invertible("Slowness (s/m)")
@@ -40,11 +36,9 @@ class BaseTraveltimeSimulation(BaseSimulation):
         survey=None,
         slowness=None,
         slownessMap=None,
-        active_cells=None,
         **kwargs,
     ):
         self.mesh = mesh
-        self.active_cells = active_cells
         super().__init__(survey=survey, **kwargs)
         self.slowness = slowness
         self.slownessMap = slownessMap
@@ -77,27 +71,8 @@ class BaseTraveltimeSimulation(BaseSimulation):
         BaseSimulation.survey.fset(self, value)
         self._reset()
 
-    @property
-    def active_cells(self):
-        """Active cells of the mesh.
-
-        Returns
-        -------
-        (n_cells,) numpy.ndarray of bool
-        """
-        return self._active_cells
-
-    @active_cells.setter
-    def active_cells(self, value):
-        if value is None:
-            value = np.ones(self.mesh.n_cells, dtype=bool)
-        self._active_cells = validate_active_indices(
-            "active_cells", value, self.mesh.n_cells
-        )
-        self._reset()
-
     def _reset(self):
-        """Clear quantities that depend on the mesh, survey or active cells."""
+        """Clear quantities that depend on the mesh or survey."""
 
     def dpred(self, m=None, f=None):
         # Docstring inherited from BaseSimulation.

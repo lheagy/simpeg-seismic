@@ -126,8 +126,11 @@ class SimulationEikonal(BaseTraveltimeSimulation):
     slowness : numpy.ndarray, optional
         Slowness (s/m) on the cells.
     slownessMap : simpeg.maps.IdentityMap, optional
-        Mapping from the model to slowness on the cells. Use a
-        :class:`simpeg.maps.ReciprocalMap` to invert for velocity.
+        Mapping from the model to slowness on all cells of the mesh. Use a
+        :class:`simpeg.maps.ReciprocalMap` to invert for velocity. As for other
+        PDE simulations in SimPEG, topography is handled through the map: an
+        :class:`simpeg.maps.InjectActiveCells` that gives the air cells a
+        large fixed slowness keeps first arrivals in the ground.
     tolerance : float, optional
         Fast sweeping stops when the largest change in an iteration is below
         ``tolerance`` times the largest traveltime.
@@ -303,36 +306,27 @@ class SimulationEikonal(BaseTraveltimeSimulation):
 
     @property
     def projection(self):
-        """Interpolation from the nodes of every source to the data.
+        """The receivers' projections of every source, as one matrix.
 
-        When factored, interpolates ``tau`` and multiplies by the distance
-        from the receiver to the source.
+        Applying it to the stored solution of all sources (source by source)
+        gives all the data in one sparse product.
 
         Returns
         -------
         (nD, n_sources * n_nodes) scipy.sparse.csr_matrix
-            Block diagonal, one block per source.
+            Block diagonal, one block per source; see
+            :meth:`simpeg_seismic.receivers.Traveltime.projection`.
         """
         if getattr(self, "_projection", None) is None:
             blocks = []
             for src in self.survey.source_list:
-                locations = np.vstack(
-                    [np.atleast_2d(rx.locations) for rx in src.receiver_list]
+                for rx in src.receiver_list:
+                    check_points_inside(self.mesh, "receiver", rx.locations)
+                blocks.append(
+                    sp.vstack([rx.projection(src, self) for rx in src.receiver_list])
                 )
-                check_points_inside(self.mesh, "receiver", locations)
-                P = self.mesh.get_interpolation_matrix(locations, location_type="nodes")
-                if self.factored:
-                    distance = np.linalg.norm(locations - src.location, axis=1)
-                    P = sp.diags(distance) @ P
-                blocks.append(P)
             self._projection = sp.block_diag(blocks, format="csr")
         return self._projection
-
-    def _check_active_cells(self):
-        if not np.all(self.active_cells):
-            raise NotImplementedError(
-                "SimulationEikonal does not support inactive cells yet."
-            )
 
     def fields(self, m):
         """Traveltimes on the nodes for every source.
@@ -346,7 +340,6 @@ class SimulationEikonal(BaseTraveltimeSimulation):
         -------
         EikonalFields
         """
-        self._check_active_cells()
         self.model = m
         geometry = self.source_geometry
         slowness_nodes = self.cell_to_node @ self.slowness

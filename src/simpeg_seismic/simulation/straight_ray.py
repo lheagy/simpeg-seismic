@@ -3,6 +3,8 @@ import warnings
 import numpy as np
 import scipy.sparse as sp
 
+from simpeg.utils import validate_active_indices
+
 from ..utils import ray_cell_length_matrix
 from .base import BaseTraveltimeSimulation
 
@@ -31,8 +33,43 @@ class SimulationStraightRay(BaseTraveltimeSimulation):
         Mapping from the model to slowness on the active cells. Use a
         :class:`simpeg.maps.ReciprocalMap` to invert for velocity.
     active_cells : numpy.ndarray of bool or int, optional
-        Cells that are part of the model. Defaults to all cells.
+        Cells that are part of the model. Defaults to all cells. As for other
+        integral simulations in SimPEG, the model lives on the active cells
+        only and ``G`` has one column per active cell.
     """
+
+    def __init__(
+        self,
+        mesh,
+        survey=None,
+        slowness=None,
+        slownessMap=None,
+        active_cells=None,
+        **kwargs,
+    ):
+        super().__init__(
+            mesh, survey=survey, slowness=slowness, slownessMap=slownessMap, **kwargs
+        )
+        self.active_cells = active_cells
+
+    @property
+    def active_cells(self):
+        """Active cells of the mesh.
+
+        Returns
+        -------
+        (n_cells,) numpy.ndarray of bool
+        """
+        return self._active_cells
+
+    @active_cells.setter
+    def active_cells(self, value):
+        if value is None:
+            value = np.ones(self.mesh.n_cells, dtype=bool)
+        self._active_cells = validate_active_indices(
+            "active_cells", value, self.mesh.n_cells
+        )
+        self._reset()
 
     def _reset(self):
         self._G = None
