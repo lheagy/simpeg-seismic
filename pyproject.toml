@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "simpeg-seismic"
+version = "0.0.1.dev0"
+description = "Seismic forward simulations for SimPEG"
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.10"
+dependencies = [
+    "numpy",
+    "scipy",
+    "discretize>=0.11",
+    "simpeg>=0.24",
+]
+
+[project.optional-dependencies]
+test = ["pytest", "matplotlib"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = [
+    "ignore:In discretize v1.0 the TreeMesh will change the default value of diagonal_balance:FutureWarning",
+]
