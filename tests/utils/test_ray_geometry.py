@@ -143,7 +143,7 @@ class TestFaceAlignedRays:
         mesh = self.mesh(mesh_type)
         lengths = self.lengths_by_cell(mesh, [0.0, 2.0, 1.5], [4.0, 2.0, 1.5])
         assert len(lengths) == 8
-        for (x, y, z), v in lengths.items():
+        for (_, y, z), v in lengths.items():
             assert y in (1.5, 2.5) and z == 1.5
             assert v == pytest.approx(0.5)
 

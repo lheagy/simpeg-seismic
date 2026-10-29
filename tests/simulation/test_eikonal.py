@@ -146,7 +146,9 @@ def gradient_error(h, factored=True):
         return v0 - gradient * z
 
     r = np.linalg.norm(rx - src, axis=1)
-    exact = np.arccosh(1 + gradient**2 * r**2 / (2 * v(src[0, 1]) * v(rx[:, 1]))) / gradient
+    exact = (
+        np.arccosh(1 + gradient**2 * r**2 / (2 * v(src[0, 1]) * v(rx[:, 1]))) / gradient
+    )
     # rays bend downwards into faster material, so they beat the straight ray
     assert np.all(d < r / v(-1.0))
     return np.max(np.abs(d - exact) / exact)
@@ -162,9 +164,7 @@ def test_linear_velocity_gradient():
 def test_head_wave():
     v1, v2, thickness = 1000.0, 3000.0, 10.0
     h = 0.5
-    mesh = discretize.TensorMesh(
-        [np.full(200, h), np.full(80, h)], origin=[0.0, -40.0]
-    )
+    mesh = discretize.TensorMesh([np.full(200, h), np.full(80, h)], origin=[0.0, -40.0])
     z = mesh.cell_centers[:, 1]
     velocity = np.where(z > -thickness, v1, v2)
     src = np.array([[2.0, 0.0]])
@@ -221,18 +221,22 @@ def test_adjoint_with_dependency_cycles(dim):
     n = 20 if dim == 2 else 9
     mesh = discretize.TensorMesh([np.ones(n)] * dim)
     rng = np.random.default_rng(5)
-    survey = make_survey(
-        rng.uniform(2, n - 2, (2, dim)), rng.uniform(0, n, (6, dim))
-    )
+    survey = make_survey(rng.uniform(2, n - 2, (2, dim)), rng.uniform(0, n, (6, dim)))
     sim = simulation(mesh, survey, mapping=maps.ReciprocalMap(mesh))
     model = rng.uniform(1500.0, 2500.0, mesh.n_cells)
     f = sim.fields(model)
     g = sim.source_geometry
     *_, n_cyclic = kernels.solve(
-        f["slowness_nodes"], *sim._nodes, dim, g["source_xyz"], True,
-        g["fixed_ptr"], g["fixed_idx"],
+        f["slowness_nodes"],
+        *sim._nodes,
+        dim,
+        g["source_xyz"],
+        True,
+        g["fixed_ptr"],
+        g["fixed_idx"],
         model[g["fixed_cell"]] ** -1 * g["fixed_coefficient"],
-        sim.tolerance, sim.max_iterations,
+        sim.tolerance,
+        sim.max_iterations,
     )
     assert np.all(n_cyclic > 0)
     v = rng.standard_normal(mesh.n_cells)
@@ -285,14 +289,14 @@ def test_matches_straight_ray_in_homogeneous_model():
     sim_sr = seismic.SimulationStraightRay(
         mesh, survey=survey, slownessMap=maps.IdentityMap(mesh)
     )
-    np.testing.assert_allclose(simulation(mesh, survey).dpred(s), sim_sr.dpred(s), rtol=1e-11)
+    np.testing.assert_allclose(
+        simulation(mesh, survey).dpred(s), sim_sr.dpred(s), rtol=1e-11
+    )
 
 
 def test_not_converged_warns():
     mesh = discretize.TensorMesh([np.ones(10), np.ones(8)])
-    sim = simulation(
-        mesh, make_survey([[1.0, 1.0]], [[9.0, 7.0]]), max_iterations=1
-    )
+    sim = simulation(mesh, make_survey([[1.0, 1.0]], [[9.0, 7.0]]), max_iterations=1)
     with pytest.warns(UserWarning, match="did not converge"):
         sim.fields(np.full(mesh.n_cells, 1e-3))
 

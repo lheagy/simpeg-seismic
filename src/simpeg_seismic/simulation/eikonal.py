@@ -293,7 +293,9 @@ class SimulationEikonal(BaseTraveltimeSimulation):
         self.model = m
         geometry = self.source_geometry
         slowness_nodes = self.cell_to_node @ self.slowness
-        fixed_val = self.slowness[geometry["fixed_cell"]] * geometry["fixed_coefficient"]
+        fixed_val = (
+            self.slowness[geometry["fixed_cell"]] * geometry["fixed_coefficient"]
+        )
         tau, T, branch, order, component_start, n_iterations, _ = _kernels().solve(
             slowness_nodes,
             *self._nodes,
@@ -368,7 +370,10 @@ class SimulationEikonal(BaseTraveltimeSimulation):
         n_fixed = np.diff(geometry["fixed_ptr"])[row_source]
         rows = np.repeat(np.arange(len(row_source)), n_fixed)
         k = np.concatenate(
-            [np.arange(geometry["fixed_ptr"][j], geometry["fixed_ptr"][j + 1]) for j in row_source]
+            [
+                np.arange(geometry["fixed_ptr"][j], geometry["fixed_ptr"][j + 1])
+                for j in row_source
+            ]
         )
         local = k - geometry["fixed_ptr"][row_source][rows]
         np.add.at(

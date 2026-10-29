@@ -43,3 +43,12 @@ examples:
 pip install -e ".[test]"
 pytest
 ```
+
+Formatting (black) and linting (flake8) use the same settings as SimPEG and
+run as a pre-commit hook:
+
+```bash
+pip install pre-commit
+pre-commit install
+pre-commit run --all-files
+```

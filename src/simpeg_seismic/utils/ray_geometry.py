@@ -362,8 +362,12 @@ def _slab_clip_lengths(x0, x1, cell_min, cell_max):
         with np.errstate(divide="ignore", invalid="ignore"):
             t_a = (cell_min[:, axis] - x0[:, axis]) / d
             t_b = (cell_max[:, axis] - x0[:, axis]) / d
-        t_lo = np.where(parallel, np.where(inside, -np.inf, np.inf), np.minimum(t_a, t_b))
-        t_hi = np.where(parallel, np.where(inside, np.inf, -np.inf), np.maximum(t_a, t_b))
+        t_lo = np.where(
+            parallel, np.where(inside, -np.inf, np.inf), np.minimum(t_a, t_b)
+        )
+        t_hi = np.where(
+            parallel, np.where(inside, np.inf, -np.inf), np.maximum(t_a, t_b)
+        )
         t_in = np.maximum(t_in, t_lo)
         t_out = np.minimum(t_out, t_hi)
     return np.maximum(t_out - t_in, 0.0) * np.linalg.norm(delta, axis=1)

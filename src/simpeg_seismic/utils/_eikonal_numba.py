@@ -264,7 +264,9 @@ def _drop_zero_branches(coef, code, t):
 
 
 @njit(cache=True)
-def _sweep(tau, fixed, s, nodes_x, nodes_y, nodes_z, dim, src, factored, tol, max_iterations):
+def _sweep(
+    tau, fixed, s, nodes_x, nodes_y, nodes_z, dim, src, factored, tol, max_iterations
+):
     """Fast sweeping in all 2**dim orderings until tau stops changing."""
     nx, ny, nz = nodes_x.size, nodes_y.size, nodes_z.size
     coef = np.zeros((8, 3))
@@ -282,7 +284,9 @@ def _sweep(tau, fixed, s, nodes_x, nodes_y, nodes_z, dim, src, factored, tol, ma
                         i = ix + nx * (iy + ny * iz)
                         if fixed[i]:
                             continue
-                        _stencil(tau, i, nodes_x, nodes_y, nodes_z, src, factored, coef, grad)
+                        _stencil(
+                            tau, i, nodes_x, nodes_y, nodes_z, src, factored, coef, grad
+                        )
                         t, _ = _local_solve(coef, s[i])
                         if t < tau[i]:
                             if tau[i] == np.inf:
@@ -384,8 +388,18 @@ def _strong_components(branch, fixed, nx, ny, order, component_start):
 
 @njit(parallel=True, cache=True)
 def solve(
-    s, nodes_x, nodes_y, nodes_z, dim, src_xyz, factored,
-    fixed_ptr, fixed_idx, fixed_val, tol, max_iterations,
+    s,
+    nodes_x,
+    nodes_y,
+    nodes_z,
+    dim,
+    src_xyz,
+    factored,
+    fixed_ptr,
+    fixed_idx,
+    fixed_val,
+    tol,
+    max_iterations,
 ):
     """Solve for every source.
 
@@ -420,13 +434,24 @@ def solve(
             tau_j[fixed_idx[k]] = fixed_val[k]
             fixed[fixed_idx[k]] = True
         n_iterations[j] = _sweep(
-            tau_j, fixed, s, nodes_x, nodes_y, nodes_z, dim, src_xyz[j], factored,
-            tol, max_iterations,
+            tau_j,
+            fixed,
+            s,
+            nodes_x,
+            nodes_y,
+            nodes_z,
+            dim,
+            src_xyz[j],
+            factored,
+            tol,
+            max_iterations,
         )
         coef = np.zeros((8, 3))
         grad = np.empty(3)
         for i in range(n):
-            D = _stencil(tau_j, i, nodes_x, nodes_y, nodes_z, src_xyz[j], factored, coef, grad)
+            D = _stencil(
+                tau_j, i, nodes_x, nodes_y, nodes_z, src_xyz[j], factored, coef, grad
+            )
             T[j, i] = D * tau_j[i]
             if not fixed[i]:
                 _, code = _local_solve(coef, s[i])
@@ -438,7 +463,9 @@ def solve(
 
 
 @njit(cache=True)
-def _linearization(tau, i, code, nodes_x, nodes_y, nodes_z, src, factored, coef, grad, c, neighbour):
+def _linearization(
+    tau, i, code, nodes_x, nodes_y, nodes_z, src, factored, coef, grad, c, neighbour
+):
     """Weights of the linearized equation at a free node.
 
     ``C dtau_i - sum_d c_d dtau_{n_d} = s_i ds_i``. Fills ``c`` (zero for
@@ -483,8 +510,23 @@ def _position(order, start, end, node):
 
 @njit(cache=True)
 def _component_system(
-    tau, order, start, end, branch, nodes_x, nodes_y, nodes_z, src, factored,
-    coef, grad, c, neighbour, M, outside_c, outside_node,
+    tau,
+    order,
+    start,
+    end,
+    branch,
+    nodes_x,
+    nodes_y,
+    nodes_z,
+    src,
+    factored,
+    coef,
+    grad,
+    c,
+    neighbour,
+    M,
+    outside_c,
+    outside_node,
 ):
     """Matrix of a multi-node component and its couplings to outside nodes."""
     m = end - start
@@ -492,8 +534,18 @@ def _component_system(
     for a in range(m):
         i = order[start + a]
         M[a, a] = _linearization(
-            tau, i, branch[i], nodes_x, nodes_y, nodes_z, src, factored,
-            coef, grad, c, neighbour,
+            tau,
+            i,
+            branch[i],
+            nodes_x,
+            nodes_y,
+            nodes_z,
+            src,
+            factored,
+            coef,
+            grad,
+            c,
+            neighbour,
         )
         for d in range(3):
             outside_c[a, d] = 0.0
@@ -510,8 +562,20 @@ def _component_system(
 
 @njit(parallel=True, cache=True)
 def tangent(
-    tau, branch, order, component_start, s, ds, nodes_x, nodes_y, nodes_z,
-    src_xyz, factored, fixed_ptr, fixed_idx, fixed_rhs,
+    tau,
+    branch,
+    order,
+    component_start,
+    s,
+    ds,
+    nodes_x,
+    nodes_y,
+    nodes_z,
+    src_xyz,
+    factored,
+    fixed_ptr,
+    fixed_idx,
+    fixed_rhs,
 ):
     """Change in tau for a change in slowness, forwards along ``order``.
 
@@ -538,8 +602,18 @@ def tangent(
                 i = order[j, k]
                 if not fixed[i]:
                     C = _linearization(
-                        tau_j, i, branch[j, i], nodes_x, nodes_y, nodes_z, src_xyz[j],
-                        factored, coef, grad, c, neighbour,
+                        tau_j,
+                        i,
+                        branch[j, i],
+                        nodes_x,
+                        nodes_y,
+                        nodes_z,
+                        src_xyz[j],
+                        factored,
+                        coef,
+                        grad,
+                        c,
+                        neighbour,
                     )
                     numerator = s[i] * ds[i]
                     for d in range(3):
@@ -551,8 +625,22 @@ def tangent(
                 outside_c = np.empty((m, 3))
                 outside_node = np.empty((m, 3), dtype=np.int64)
                 _component_system(
-                    tau_j, order[j], k, end, branch[j], nodes_x, nodes_y, nodes_z,
-                    src_xyz[j], factored, coef, grad, c, neighbour, M, outside_c,
+                    tau_j,
+                    order[j],
+                    k,
+                    end,
+                    branch[j],
+                    nodes_x,
+                    nodes_y,
+                    nodes_z,
+                    src_xyz[j],
+                    factored,
+                    coef,
+                    grad,
+                    c,
+                    neighbour,
+                    M,
+                    outside_c,
                     outside_node,
                 )
                 rhs = np.empty(m)
@@ -571,8 +659,20 @@ def tangent(
 
 @njit(parallel=True, cache=True)
 def adjoint(
-    tau, branch, order, component_start, s, g, row_source, nodes_x, nodes_y,
-    nodes_z, src_xyz, factored, fixed_ptr, fixed_idx,
+    tau,
+    branch,
+    order,
+    component_start,
+    s,
+    g,
+    row_source,
+    nodes_x,
+    nodes_y,
+    nodes_z,
+    src_xyz,
+    factored,
+    fixed_ptr,
+    fixed_idx,
 ):
     """Transpose of ``tangent`` applied to each row of ``g``, backwards along ``order``.
 
@@ -616,8 +716,18 @@ def adjoint(
                 lam = acc[i]
                 if not fixed[i] and lam != 0.0:
                     C = _linearization(
-                        tau_j, i, branch[j, i], nodes_x, nodes_y, nodes_z, src_xyz[j],
-                        factored, coef, grad, c, neighbour,
+                        tau_j,
+                        i,
+                        branch[j, i],
+                        nodes_x,
+                        nodes_y,
+                        nodes_z,
+                        src_xyz[j],
+                        factored,
+                        coef,
+                        grad,
+                        c,
+                        neighbour,
                     )
                     mu = lam / C
                     grad_nodes[r, i] = s[i] * mu
@@ -635,9 +745,23 @@ def adjoint(
                     outside_c = np.empty((m, 3))
                     outside_node = np.empty((m, 3), dtype=np.int64)
                     _component_system(
-                        tau_j, order[j], start, end, branch[j], nodes_x, nodes_y,
-                        nodes_z, src_xyz[j], factored, coef, grad, c, neighbour, M,
-                        outside_c, outside_node,
+                        tau_j,
+                        order[j],
+                        start,
+                        end,
+                        branch[j],
+                        nodes_x,
+                        nodes_y,
+                        nodes_z,
+                        src_xyz[j],
+                        factored,
+                        coef,
+                        grad,
+                        c,
+                        neighbour,
+                        M,
+                        outside_c,
+                        outside_node,
                     )
                     mu = np.linalg.solve(M.T.copy(), rhs)
                     for a in range(m):

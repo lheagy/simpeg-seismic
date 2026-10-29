@@ -48,7 +48,9 @@ CASES = [(dim, t) for dim in (2, 3) for t in ("tensor", "tree")]
 def test_homogeneous_traveltimes(dim, mesh_type):
     m = mesh(dim, mesh_type)
     survey = crosswell_survey(dim)
-    sim = seismic.SimulationStraightRay(m, survey=survey, slownessMap=maps.IdentityMap(m))
+    sim = seismic.SimulationStraightRay(
+        m, survey=survey, slownessMap=maps.IdentityMap(m)
+    )
     s = 1 / 1500.0
     src, rx = survey.ray_endpoints
     np.testing.assert_allclose(
