@@ -26,11 +26,21 @@ sim = traveltime.SimulationEikonal(mesh, survey=survey, slownessMap=slowness_map
     homogeneous medium), with exact discrete adjoint-state sensitivities, on
     2D and 3D `discretize.TensorMesh`. Topography through
     `simpeg.maps.InjectActiveCells`. Requires numba.
+- `frequency_domain`: constant-density acoustic (Helmholtz) simulation for
+  FWI.
+  - `Survey`, `sources.Point` (with a frequency and amplitude),
+    `receivers.Pressure` (real or imaginary part).
+  - `SimulationAcoustic`: pressure on the nodes of a 2D or 3D
+    `discretize.TensorMesh`, PML absorbing boundaries (`pml_velocity`,
+    `pml_cells`, about one wavelength thick), optional free surface. One
+    factorization per frequency, reused for all sources and for the adjoint
+    solves of `Jtvec`. Model is slowness, as for `traveltime`; invert for
+    velocity or log-velocity through maps.
+- `acoustic`: the discrete acoustic operators and PML, shared with the
+  planned `time_domain` (acoustic wave equation).
 - `utils`: ray-cell intersection lengths (`ray_cell_length_matrix`, with an
-  optional numba engine), the eikonal kernels and mesh helpers.
-
-Planned: `frequency_domain` (Helmholtz, FWI) and `time_domain` (acoustic wave
-equation), sharing acoustic operators.
+  optional numba engine), the eikonal kernels, mesh helpers and source
+  wavelets (`wavelets.ricker`, `wavelets.ricker_spectrum`).
 
 ## Examples
 
