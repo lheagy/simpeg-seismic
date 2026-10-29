@@ -54,6 +54,62 @@ def ray_cell_lengths(mesh, x0, x1, rtol=1e-10, engine=None):
     its length split equally between those cells. On the outer boundary of
     the mesh, all of the length goes to the cells inside the mesh.
     """
+    copy_ray, copy_index, cell_index, length = _trace(mesh, x0, x1, rtol, engine)
+    return copy_ray[copy_index], cell_index, length
+
+
+def ray_cell_length_matrix(mesh, x0, x1, rtol=1e-10, engine=None):
+    """Sparse matrix of ray lengths in each cell.
+
+    Parameters
+    ----------
+    mesh : discretize.TensorMesh or discretize.TreeMesh
+        A 2D or 3D mesh.
+    x0, x1 : (n_rays, dim) array_like
+        Start and end points of each ray.
+    rtol : float, optional
+        See :func:`ray_cell_lengths`.
+    engine : {"numba", "numpy"}, optional
+        See :func:`ray_cell_lengths`.
+
+    Returns
+    -------
+    (n_rays, n_cells) scipy.sparse.csr_matrix
+        Entry ``(i, j)`` is the length of ray ``i`` inside cell ``j``. Column
+        indices within a row are in the order the ray crosses the cells, not
+        sorted.
+    """
+    copy_ray, copy_index, cell_index, length = _trace(mesh, x0, x1, rtol, engine)
+    n_rays = np.atleast_2d(x0).shape[0]
+    shape = (n_rays, mesh.n_cells)
+
+    if copy_ray.size == n_rays and np.all(copy_ray == np.arange(n_rays)):
+        # Each copy is a ray, in order, so the segments are already grouped by
+        # row, and a single copy never crosses the same cell twice.
+        indptr = np.zeros(n_rays + 1, dtype=np.int64)
+        np.cumsum(np.bincount(copy_index, minlength=n_rays), out=indptr[1:])
+        return sp.csr_matrix((length, cell_index, indptr), shape=shape)
+
+    # Copies of a split ray can land in the same cell (e.g. on a TreeMesh
+    # when a fine-level face runs through a coarse cell), so sum duplicates.
+    ray_index = copy_ray[copy_index]
+    G = sp.csr_matrix((length, (ray_index, cell_index)), shape=shape)
+    G.sum_duplicates()
+    return G
+
+
+def _trace(mesh, x0, x1, rtol, engine):
+    """Validate inputs, split face-aligned rays and trace all copies.
+
+    Returns
+    -------
+    copy_ray : (n_copies,) numpy.ndarray of int
+        Ray of each copy. Usually ``arange(n_rays)``; see
+        :func:`_split_face_aligned_rays`.
+    copy_index, cell_index, length : (n_entries,) numpy.ndarray
+        Segments of each copy, grouped by copy in increasing order, with the
+        copy weights already applied to the lengths.
+    """
     _validate_mesh(mesh)
     engine = _validate_engine(engine)
     x0 = _validate_points("x0", x0, mesh.dim)
@@ -94,37 +150,9 @@ def ray_cell_lengths(mesh, x0, x1, rtol=1e-10, engine=None):
     else:
         copy_index, cell_index, length = _tree_mesh_lengths(mesh, x0, x1, tol)
 
-    ray_index = copy_ray[copy_index]
-    length = length * copy_weight[copy_index]
-    return ray_index, cell_index, length
-
-
-def ray_cell_length_matrix(mesh, x0, x1, rtol=1e-10, engine=None):
-    """Sparse matrix of ray lengths in each cell.
-
-    Parameters
-    ----------
-    mesh : discretize.TensorMesh or discretize.TreeMesh
-        A 2D or 3D mesh.
-    x0, x1 : (n_rays, dim) array_like
-        Start and end points of each ray.
-    rtol : float, optional
-        See :func:`ray_cell_lengths`.
-    engine : {"numba", "numpy"}, optional
-        See :func:`ray_cell_lengths`.
-
-    Returns
-    -------
-    (n_rays, n_cells) scipy.sparse.csr_matrix
-        Entry ``(i, j)`` is the length of ray ``i`` inside cell ``j``.
-    """
-    ray_index, cell_index, length = ray_cell_lengths(
-        mesh, x0, x1, rtol=rtol, engine=engine
-    )
-    n_rays = np.atleast_2d(x0).shape[0]
-    G = sp.csr_matrix((length, (ray_index, cell_index)), shape=(n_rays, mesh.n_cells))
-    G.sum_duplicates()
-    return G
+    if np.any(copy_weight != 1.0):
+        length = length * copy_weight[copy_index]
+    return copy_ray, copy_index, cell_index, length
 
 
 def _validate_mesh(mesh):
