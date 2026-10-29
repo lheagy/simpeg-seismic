@@ -2,22 +2,12 @@ import discretize
 import numpy as np
 import pytest
 import scipy.sparse as sp
-from discretize.tests import check_derivative
+from helpers import assert_adjoint, assert_derivative, make_survey
 from simpeg import maps
 
 pytest.importorskip("numba")
 
 import simpeg_seismic as seismic  # noqa: E402
-
-
-def make_survey(source_locations, receiver_locations):
-    receivers = [seismic.receivers.Traveltime(receiver_locations)]
-    return seismic.Survey(
-        [
-            seismic.sources.PointSource(receiver_list=receivers, location=loc)
-            for loc in source_locations
-        ]
-    )
 
 
 def simulation(mesh, survey, mapping=None, **kwargs):
@@ -31,8 +21,8 @@ def simulation(mesh, survey, mapping=None, **kwargs):
 
 def godunov_residual(sim, f, j):
     """Residual of Godunov's upwind equation at the free nodes of source ``j``."""
-    T = f["T"][j]
-    s = f["slowness_nodes"]
+    T = f[:, "T"][:, j]
+    s = f.slowness_nodes
     nodes = sim._nodes
     shape = [n.size for n in nodes]
     T3 = T.reshape(shape, order="F")
@@ -89,8 +79,8 @@ def test_plain_scheme_solves_godunov_equations(dim):
     """Independent numpy check of the unfactored discrete equations."""
     sim, model = random_problem(dim, factored=False)
     f = sim.fields(model)
-    assert np.all(np.isfinite(f["T"]))
-    np.testing.assert_array_equal(f["T"], f["tau"])
+    assert np.all(np.isfinite(f[:, "T"]))
+    np.testing.assert_array_equal(f[:, "T"], f[:, "tau"])
     for j in range(3):
         assert np.max(np.abs(godunov_residual(sim, f, j))) < 1e-8
 
@@ -107,14 +97,15 @@ def test_fixed_point_of_local_solver(dim, factored):
     coef = np.zeros((8, 3))
     grad = np.empty(3)
     breakpoints = np.empty(9)
+    tau = np.ascontiguousarray(f[:, "tau"].T)
     for j in range(3):
         fixed = g["fixed_idx"][g["fixed_ptr"][j] : g["fixed_ptr"][j + 1]]
         for i in np.setdiff1d(np.arange(sim.mesh.n_nodes), fixed):
             kernels._stencil(
-                f["tau"][j], i, *sim._nodes, g["source_xyz"][j], factored, coef, grad
+                tau[j], i, *sim._nodes, g["source_xyz"][j], factored, coef, grad
             )
-            t, _ = kernels._local_solve(coef, f["slowness_nodes"][i], breakpoints)
-            assert t == pytest.approx(f["tau"][j, i], rel=1e-9)
+            t, _ = kernels._local_solve(coef, f.slowness_nodes[i], breakpoints)
+            assert t == pytest.approx(tau[j, i], rel=1e-9)
 
 
 @pytest.mark.parametrize("dim", [2, 3])
@@ -196,21 +187,8 @@ def test_derivative_and_adjoint(dim, velocity, factored):
     if not velocity:
         model = 1 / model
 
-    assert check_derivative(
-        lambda x: (sim.dpred(x), lambda v: sim.Jvec(x, v)),
-        model,
-        dx=model * 1e-3 * rng.standard_normal(mesh.n_cells),
-        num=4,
-        plotIt=False,
-        random_seed=0,
-    )
-
-    f = sim.fields(model)
-    v = rng.standard_normal(mesh.n_cells)
-    w = rng.standard_normal(survey.nD)
-    np.testing.assert_allclose(
-        w @ sim.Jvec(model, v, f=f), v @ sim.Jtvec(model, w, f=f), rtol=1e-10
-    )
+    assert_derivative(sim, model, dx=model * 1e-3 * rng.standard_normal(mesh.n_cells))
+    assert_adjoint(sim, model, rng, f=sim.fields(model))
 
 
 @pytest.mark.parametrize("dim", [2, 3])
@@ -228,7 +206,7 @@ def test_adjoint_with_dependency_cycles(dim):
     f = sim.fields(model)
     g = sim.source_geometry
     *_, n_cyclic = kernels.solve(
-        f["slowness_nodes"],
+        f.slowness_nodes,
         *sim._nodes,
         dim,
         g["source_xyz"],
@@ -240,11 +218,7 @@ def test_adjoint_with_dependency_cycles(dim):
         sim.max_iterations,
     )
     assert np.all(n_cyclic > 0)
-    v = rng.standard_normal(mesh.n_cells)
-    w = rng.standard_normal(survey.nD)
-    np.testing.assert_allclose(
-        w @ sim.Jvec(model, v, f=f), v @ sim.Jtvec(model, w, f=f), rtol=1e-10
-    )
+    assert_adjoint(sim, model, rng, f=f)
     # and against finite differences
     dm = 1e-4 * model * rng.standard_normal(mesh.n_cells)
     fd = (sim.dpred(model + dm) - sim.dpred(model - dm)) / 2
@@ -326,3 +300,30 @@ def test_receiver_outside_mesh_raises():
     sim = simulation(mesh, make_survey([[1.0, 1.0]], [[11.0, 5.0]]))
     with pytest.raises(ValueError, match="outside of the mesh"):
         sim.dpred(np.full(mesh.n_cells, 1e-3))
+
+
+@pytest.mark.parametrize("factored", [False, True])
+def test_fields_interface(factored):
+    """SimPEG-style indexing: f[src, name] with columns per source."""
+    mesh = discretize.TensorMesh([np.ones(10), np.ones(8)])
+    sources = np.array([[2.3, 3.1], [7.0, 5.0]])
+    survey = make_survey(sources, mesh.nodes[[5, 40, 90]])
+    sim = simulation(mesh, survey, factored=factored)
+    s = 1 / 1500.0
+    f = sim.fields(np.full(mesh.n_cells, s))
+
+    assert isinstance(f, seismic.simulation.EikonalFields)
+    T = f[:, "T"]
+    assert T.shape == (mesh.n_nodes, 2)
+    np.testing.assert_array_equal(f[survey.source_list[1], "T"][:, 0], T[:, 1])
+    # homogeneous: exact when factored, and receivers on nodes see the node values
+    distance = np.linalg.norm(mesh.nodes[:, None, :] - sources[None], axis=-1)
+    if factored:
+        np.testing.assert_allclose(T, s * distance, rtol=1e-12)
+        np.testing.assert_allclose(f[:, "tau"], s, rtol=1e-12)
+    np.testing.assert_allclose(
+        sim.dpred(f=f), T[[5, 40, 90]].T.ravel(), rtol=1e-12, atol=1e-15
+    )
+    assert f.n_iterations.shape == (2,)
+    with pytest.raises(KeyError):
+        f[:, "T"] = T

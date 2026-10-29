@@ -2,8 +2,8 @@ import discretize
 import numpy as np
 import pytest
 import scipy.sparse as sp
+from helpers import assert_adjoint, assert_derivative, make_survey
 from simpeg import maps
-from discretize.tests import check_derivative
 
 import simpeg_seismic as seismic
 
@@ -17,13 +17,7 @@ def crosswell_survey(dim, n_src=4, n_rx=6):
     else:
         src_locs = np.c_[np.full(n_src, 1.0), np.full(n_src, 2.0), depths_src]
         rx_locs = np.c_[np.full(n_rx, 9.0), np.full(n_rx, 7.0), depths_rx]
-    source_list = [
-        seismic.sources.PointSource(
-            receiver_list=[seismic.receivers.Traveltime(rx_locs)], location=loc
-        )
-        for loc in src_locs
-    ]
-    return seismic.Survey(source_list)
+    return make_survey(src_locs, rx_locs)
 
 
 def mesh(dim, mesh_type):
@@ -69,20 +63,8 @@ def test_velocity_derivative_and_adjoint(dim, mesh_type):
     rng = np.random.default_rng(42)
     model = rng.uniform(1000.0, 3000.0, m.n_cells)
 
-    assert check_derivative(
-        lambda x: (sim.dpred(x), lambda v: sim.Jvec(x, v)),
-        model,
-        dx=model * 1e-2,
-        num=4,
-        plotIt=False,
-        random_seed=0,
-    )
-
-    v = rng.standard_normal(m.n_cells)
-    w = rng.standard_normal(sim.survey.nD)
-    np.testing.assert_allclose(
-        w @ sim.Jvec(model, v), v @ sim.Jtvec(model, w), rtol=1e-10
-    )
+    assert_derivative(sim, model, dx=model * 1e-2)
+    assert_adjoint(sim, model, rng)
 
 
 def test_getJtJdiag():

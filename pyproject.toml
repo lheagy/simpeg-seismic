@@ -25,6 +25,8 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# lets the tests import the shared helpers in tests/helpers.py
+pythonpath = ["tests"]
 filterwarnings = [
     "ignore:In discretize v1.0 the TreeMesh will change the default value of diagonal_balance:FutureWarning",
 ]

@@ -3,8 +3,10 @@ import warnings
 import numpy as np
 import scipy.sparse as sp
 from discretize import TensorMesh
+from simpeg.fields import Fields
 from simpeg.utils import validate_float, validate_integer, validate_type
 
+from ..utils._mesh import axis_nodes, check_points_inside
 from .base import BaseTraveltimeSimulation
 
 
@@ -14,6 +16,78 @@ def _kernels():
     except ImportError as err:
         raise ImportError("SimulationEikonal requires numba.") from err
     return _eikonal_numba
+
+
+class EikonalFields(Fields):
+    r"""Fields of :class:`SimulationEikonal`.
+
+    Stores the solution ``tauSolution`` on the nodes, one column per source.
+    When the simulation is factored the traveltime is :math:`T = D \tau`,
+    with :math:`D` the distance from the node to the source; otherwise
+    :math:`\tau` is the traveltime.
+
+    Fields that can be extracted, each of shape (n_nodes, n_sources):
+
+    - ``'T'``: traveltime.
+    - ``'tau'``: the quantity solved for.
+
+    .. code-block:: python
+
+        f = simulation.fields(m)
+        T = f[:, "T"]
+        T_first = f[survey.source_list[0], "T"]
+
+    The upwind structure of the solve, which ``Jvec`` and ``Jtvec`` reuse, is
+    kept in the attributes below. Arrays with a source dimension are
+    (n_sources, n_nodes).
+
+    Attributes
+    ----------
+    slowness_nodes : (n_nodes,) numpy.ndarray
+        Slowness on the nodes.
+    branch : numpy.ndarray of int8
+        Upwind branch code of each node.
+    order, component_start : numpy.ndarray
+        Nodes grouped into strongly connected components of the upwind
+        dependencies, dependencies first, and where each component starts.
+    n_iterations : (n_sources,) numpy.ndarray of int
+        Fast sweeping iterations for each source.
+    """
+
+    knownFields = {"tauSolution": "N"}
+    aliasFields = {
+        "tau": ["tauSolution", "N", "_tau"],
+        "T": ["tauSolution", "N", "_T"],
+    }
+
+    def _tau(self, tau_solution, source_list):
+        return tau_solution
+
+    def _T(self, tau_solution, source_list):
+        if not self.simulation.factored:
+            return tau_solution
+        locations = np.vstack([src.location for src in source_list])
+        distance = np.linalg.norm(
+            self.mesh.nodes[:, None, :] - locations[None, :, :], axis=-1
+        )
+        return distance * tau_solution
+
+    def _store(self, tau, slowness_nodes, branch, order, component_start, n_iterations):
+        """Store a solve; ``tau`` is the (n_sources, n_nodes) kernel output."""
+        # The kernels work source by source on C-ordered (n_sources, n_nodes)
+        # arrays; the transpose is the (n_nodes, n_sources) storage Fields
+        # expects, in Fortran order, without a copy.
+        self._fields["tauSolution"] = tau.T
+        self.slowness_nodes = slowness_nodes
+        self.branch = branch
+        self.order = order
+        self.component_start = component_start
+        self.n_iterations = n_iterations
+
+    @property
+    def _tau_by_source(self):
+        """``tauSolution`` as a C-ordered (n_sources, n_nodes) array for the kernels."""
+        return np.ascontiguousarray(self._fields["tauSolution"].T)
 
 
 class SimulationEikonal(BaseTraveltimeSimulation):
@@ -161,22 +235,11 @@ class SimulationEikonal(BaseTraveltimeSimulation):
 
     @property
     def _nodes(self):
-        nodes = [
-            self.mesh.origin[d] + np.r_[0.0, np.cumsum(self.mesh.h[d])]
-            for d in range(self.mesh.dim)
-        ]
+        """Node coordinates along each axis, padded to three axes for 2D."""
+        nodes = [axis_nodes(self.mesh, d) for d in range(self.mesh.dim)]
         if self.mesh.dim == 2:
             nodes.append(np.zeros(1))
         return tuple(nodes)
-
-    def _check_inside(self, name, points):
-        lo = self.mesh.origin
-        hi = lo + np.array([np.sum(h) for h in self.mesh.h])
-        outside = np.any((points < lo) | (points > hi), axis=1)
-        if np.any(outside):
-            raise ValueError(
-                f"{outside.sum()} {name} location(s) are outside of the mesh."
-            )
 
     @property
     def source_geometry(self):
@@ -194,7 +257,7 @@ class SimulationEikonal(BaseTraveltimeSimulation):
         if getattr(self, "_source_geometry", None) is None:
             mesh = self.mesh
             locations = np.vstack([src.location for src in self.survey.source_list])
-            self._check_inside("source", locations)
+            check_points_inside(self.mesh, "source", locations)
             nodes = self._nodes
             shape_nodes = [n.size for n in nodes]
 
@@ -256,7 +319,7 @@ class SimulationEikonal(BaseTraveltimeSimulation):
                 locations = np.vstack(
                     [np.atleast_2d(rx.locations) for rx in src.receiver_list]
                 )
-                self._check_inside("receiver", locations)
+                check_points_inside(self.mesh, "receiver", locations)
                 P = self.mesh.get_interpolation_matrix(locations, location_type="nodes")
                 if self.factored:
                     distance = np.linalg.norm(locations - src.location, axis=1)
@@ -281,13 +344,7 @@ class SimulationEikonal(BaseTraveltimeSimulation):
 
         Returns
         -------
-        dict
-            ``T`` (n_sources, n_nodes) traveltimes; ``tau`` the quantity
-            solved for (``T`` divided by the distance to the source when
-            factored, otherwise ``T``); ``branch`` the upwind branch of
-            each node; ``order`` and ``component_start``, the nodes grouped
-            into strongly connected components of the upwind dependencies,
-            dependencies first; and ``slowness_nodes`` (n_nodes,).
+        EikonalFields
         """
         self._check_active_cells()
         self.model = m
@@ -296,7 +353,7 @@ class SimulationEikonal(BaseTraveltimeSimulation):
         fixed_val = (
             self.slowness[geometry["fixed_cell"]] * geometry["fixed_coefficient"]
         )
-        tau, T, branch, order, component_start, n_iterations, _ = _kernels().solve(
+        tau, branch, order, component_start, n_iterations, _ = _kernels().solve(
             slowness_nodes,
             *self._nodes,
             self.mesh.dim,
@@ -315,29 +372,24 @@ class SimulationEikonal(BaseTraveltimeSimulation):
                 "source(s).",
                 stacklevel=2,
             )
-        return {
-            "tau": tau,
-            "T": T,
-            "branch": branch,
-            "order": order,
-            "component_start": component_start,
-            "slowness_nodes": slowness_nodes,
-        }
+        f = EikonalFields(self)
+        f._store(tau, slowness_nodes, branch, order, component_start, n_iterations)
+        return f
 
     def dpred(self, m=None, f=None):
         # Docstring inherited from BaseSimulation.
         if f is None:
             f = self.fields(self.model if m is None else m)
-        return self.projection @ f["tau"].ravel()
+        return self.projection @ f._tau_by_source.ravel()
 
     def _tangent(self, f, ds):
         geometry = self.source_geometry
         dtau = _kernels().tangent(
-            f["tau"],
-            f["branch"],
-            f["order"],
-            f["component_start"],
-            f["slowness_nodes"],
+            f._tau_by_source,
+            f.branch,
+            f.order,
+            f.component_start,
+            f.slowness_nodes,
             self.cell_to_node @ ds,
             *self._nodes,
             geometry["source_xyz"],
@@ -352,11 +404,11 @@ class SimulationEikonal(BaseTraveltimeSimulation):
         """Gradient on the cells for each row of ``g`` (on the nodes of ``row_source``)."""
         geometry = self.source_geometry
         grad_nodes, fixed_adjoint = _kernels().adjoint(
-            f["tau"],
-            f["branch"],
-            f["order"],
-            f["component_start"],
-            f["slowness_nodes"],
+            f._tau_by_source,
+            f.branch,
+            f.order,
+            f.component_start,
+            f.slowness_nodes,
             g,
             row_source,
             *self._nodes,
@@ -366,20 +418,13 @@ class SimulationEikonal(BaseTraveltimeSimulation):
             geometry["fixed_idx"],
         )
         grad_cells = (self.cell_to_node.T @ grad_nodes.T).T
-        # contribution of the fixed nodes, through the slowness of the source cell
-        n_fixed = np.diff(geometry["fixed_ptr"])[row_source]
-        rows = np.repeat(np.arange(len(row_source)), n_fixed)
-        k = np.concatenate(
-            [
-                np.arange(geometry["fixed_ptr"][j], geometry["fixed_ptr"][j + 1])
-                for j in row_source
-            ]
-        )
-        local = k - geometry["fixed_ptr"][row_source][rows]
-        np.add.at(
-            grad_cells,
-            (rows, geometry["fixed_cell"][k]),
-            geometry["fixed_coefficient"][k] * fixed_adjoint[rows, local],
+        # The fixed nodes are the 2**dim corners of the source cell, and their
+        # values are slowness[source_cell] * fixed_coefficient.
+        n_corners = 2**self.mesh.dim
+        coefficient = geometry["fixed_coefficient"].reshape(-1, n_corners)
+        source_cell = geometry["fixed_cell"][::n_corners]
+        grad_cells[np.arange(len(row_source)), source_cell[row_source]] += np.sum(
+            coefficient[row_source] * fixed_adjoint, axis=1
         )
         return grad_cells
 
@@ -395,8 +440,8 @@ class SimulationEikonal(BaseTraveltimeSimulation):
         if f is None:
             f = self.fields(m)
         self.model = m
-        n_sources, n_nodes = f["T"].shape
-        g = (self.projection.T @ v).reshape(n_sources, n_nodes)
+        n_sources = len(self.survey.source_list)
+        g = (self.projection.T @ v).reshape(n_sources, self.mesh.n_nodes)
         grad_cells = self._adjoint(f, g, np.arange(n_sources)).sum(axis=0)
         return self.slownessDeriv.T @ grad_cells
 
@@ -411,7 +456,7 @@ class SimulationEikonal(BaseTraveltimeSimulation):
             The model parameters.
         W : (nD, nD) scipy.sparse matrix, optional
             Diagonal matrix with the square root of the data weights.
-        f : dict, optional
+        f : EikonalFields, optional
             Fields from :meth:`fields`.
         batch_size : int, optional
             Number of data handled per adjoint batch.
@@ -423,7 +468,7 @@ class SimulationEikonal(BaseTraveltimeSimulation):
         if f is None:
             f = self.fields(m)
         self.model = m
-        n_nodes = f["T"].shape[1]
+        n_nodes = self.mesh.n_nodes
         weights = np.ones(self.survey.nD) if W is None else W.diagonal()
         P = self.projection
         data_source = np.repeat(

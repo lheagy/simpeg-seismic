@@ -11,6 +11,8 @@ import numpy as np
 import scipy.sparse as sp
 from discretize import TensorMesh, TreeMesh
 
+from ._mesh import axis_nodes, mesh_bounds, points_inside
+
 try:
     from ._ray_geometry_numba import tensor_mesh_lengths as _numba_tensor_mesh_lengths
 except ImportError:
@@ -119,11 +121,11 @@ def _trace(mesh, x0, x1, rtol, engine):
             f"x0 and x1 must have the same shape, got {x0.shape} and {x1.shape}."
         )
 
-    bounds_min, bounds_max = _mesh_bounds(mesh)
+    bounds_min, bounds_max = mesh_bounds(mesh)
     tol = rtol * np.max(bounds_max - bounds_min)
     outside = ~(
-        _points_inside(x0, bounds_min - tol, bounds_max + tol)
-        & _points_inside(x1, bounds_min - tol, bounds_max + tol)
+        points_inside(x0, bounds_min - tol, bounds_max + tol)
+        & points_inside(x1, bounds_min - tol, bounds_max + tol)
     )
     if np.any(outside):
         raise ValueError(
@@ -139,7 +141,7 @@ def _trace(mesh, x0, x1, rtol, engine):
 
     if isinstance(mesh, TensorMesh) and engine == "numba":
         copy_index, cell_index, length = _numba_tensor_mesh_lengths(
-            tuple(_axis_nodes(mesh, axis) for axis in range(mesh.dim)),
+            tuple(axis_nodes(mesh, axis) for axis in range(mesh.dim)),
             mesh.shape_cells,
             x0,
             x1,
@@ -182,25 +184,6 @@ def _validate_points(name, points, dim):
     return points
 
 
-def _mesh_bounds(mesh):
-    bounds_min = np.asarray(mesh.origin, dtype=float)
-    bounds_max = bounds_min + np.array([np.sum(h) for h in mesh.h])
-    return bounds_min, bounds_max
-
-
-def _axis_nodes(mesh, axis):
-    """Every coordinate along ``axis`` where a cell face can be.
-
-    For a TreeMesh, ``mesh.h`` holds the widths of the finest level, so these
-    are all of the potential face locations.
-    """
-    return mesh.origin[axis] + np.r_[0.0, np.cumsum(mesh.h[axis])]
-
-
-def _points_inside(points, bounds_min, bounds_max):
-    return np.all((points >= bounds_min) & (points <= bounds_max), axis=1)
-
-
 def _split_face_aligned_rays(mesh, x0, x1, tol):
     """Replace rays lying on cell faces by copies shifted off the face.
 
@@ -223,7 +206,7 @@ def _split_face_aligned_rays(mesh, x0, x1, tol):
     on_face = np.zeros((n_rays, dim), dtype=bool)
     shift = np.empty(dim)
     for axis in range(dim):
-        nodes = _axis_nodes(mesh, axis)
+        nodes = axis_nodes(mesh, axis)
         parallel = np.abs(x1[:, axis] - x0[:, axis]) <= tol
         on_face[:, axis] = parallel & (_distance_to_nearest(nodes, x0[:, axis]) <= tol)
         shift[axis] = 0.25 * np.min(mesh.h[axis])
@@ -245,8 +228,8 @@ def _split_face_aligned_rays(mesh, x0, x1, tol):
     copy_x0 = np.vstack(copy_x0)
     copy_x1 = np.vstack(copy_x1)
 
-    bounds_min, bounds_max = _mesh_bounds(mesh)
-    inside = _points_inside(copy_x0, bounds_min, bounds_max) & _points_inside(
+    bounds_min, bounds_max = mesh_bounds(mesh)
+    inside = points_inside(copy_x0, bounds_min, bounds_max) & points_inside(
         copy_x1, bounds_min, bounds_max
     )
     copy_ray = copy_ray[inside]
@@ -275,7 +258,7 @@ def _tensor_mesh_lengths(mesh, x0, x1, tol):
     rays = [ray_ids, ray_ids]
     alphas = [np.zeros(n_rays), np.ones(n_rays)]
     for axis in range(dim):
-        nodes = _axis_nodes(mesh, axis)
+        nodes = axis_nodes(mesh, axis)
         lo = np.minimum(x0[:, axis], x1[:, axis])
         hi = np.maximum(x0[:, axis], x1[:, axis])
         # node planes strictly between the two endpoints
@@ -311,7 +294,7 @@ def _tensor_mesh_lengths(mesh, x0, x1, tol):
 
     cell_subscripts = tuple(
         np.clip(
-            np.searchsorted(_axis_nodes(mesh, axis), midpoints[:, axis], side="right")
+            np.searchsorted(axis_nodes(mesh, axis), midpoints[:, axis], side="right")
             - 1,
             0,
             mesh.shape_cells[axis] - 1,

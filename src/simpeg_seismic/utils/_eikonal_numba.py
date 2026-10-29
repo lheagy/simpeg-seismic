@@ -45,6 +45,11 @@ from numba import njit, prange
 
 _NONE, _MINUS, _PLUS = 0, 1, 2
 
+# Rows of the per-node coefficient array ``coef`` (one column per axis): the
+# minus and plus one-sided derivatives are ``a * tau_i - b``, ``h`` is the
+# distance to the neighbour and ``has`` is 1 when the neighbour is reached.
+_A_M, _B_M, _A_P, _B_P, _H_M, _H_P, _HAS_M, _HAS_P = range(8)
+
 
 @njit(cache=True, inline="always")
 def _branch(code, d):
@@ -74,22 +79,22 @@ def _distance(ix, iy, iz, nodes_x, nodes_y, nodes_z, src, factored, grad):
 def _axis(tau, i, idx, n, stride, nodes, D, g, coef, d):
     """One-sided derivative coefficients along one axis.
 
-    ``coef[:, d]`` = a_m, b_m, a_p, b_p, h_m, h_p, has_m, has_p.
+    Fills column ``d`` of ``coef`` (rows ``_A_M`` ... ``_HAS_P``).
     """
-    coef[6, d] = 0.0
-    coef[7, d] = 0.0
+    coef[_HAS_M, d] = 0.0
+    coef[_HAS_P, d] = 0.0
     if idx > 0 and tau[i - stride] < np.inf:
         h = nodes[idx] - nodes[idx - 1]
-        coef[0, d] = g + D / h
-        coef[1, d] = D * tau[i - stride] / h
-        coef[4, d] = h
-        coef[6, d] = 1.0
+        coef[_A_M, d] = g + D / h
+        coef[_B_M, d] = D * tau[i - stride] / h
+        coef[_H_M, d] = h
+        coef[_HAS_M, d] = 1.0
     if idx < n - 1 and tau[i + stride] < np.inf:
         h = nodes[idx + 1] - nodes[idx]
-        coef[2, d] = g - D / h
-        coef[3, d] = -D * tau[i + stride] / h
-        coef[5, d] = h
-        coef[7, d] = 1.0
+        coef[_A_P, d] = g - D / h
+        coef[_B_P, d] = -D * tau[i + stride] / h
+        coef[_H_P, d] = h
+        coef[_HAS_P, d] = 1.0
 
 
 @njit(cache=True)
@@ -129,8 +134,8 @@ def _stencil_at(
 def _consistent(coef, code, t):
     """Whether every axis takes the branch ``code`` asks for at ``tau_i = t``."""
     for d in range(3):
-        p_minus = coef[0, d] * t - coef[1, d] if coef[6, d] else -np.inf
-        p_plus = coef[2, d] * t - coef[3, d] if coef[7, d] else np.inf
+        p_minus = coef[_A_M, d] * t - coef[_B_M, d] if coef[_HAS_M, d] else -np.inf
+        p_plus = coef[_A_P, d] * t - coef[_B_P, d] if coef[_HAS_P, d] else np.inf
         b = _branch(code, d)
         if b == _MINUS:
             if p_minus < 0.0 or p_minus < -p_plus:
@@ -148,13 +153,13 @@ def _term(coef, d, t):
     """Godunov term of axis ``d`` at ``tau_i = t``, and the branch giving it."""
     value = 0.0
     b = _NONE
-    if coef[6, d]:
-        v = coef[0, d] * t - coef[1, d]
+    if coef[_HAS_M, d]:
+        v = coef[_A_M, d] * t - coef[_B_M, d]
         if v > value:
             value = v
             b = _MINUS
-    if coef[7, d]:
-        v = coef[3, d] - coef[2, d] * t
+    if coef[_HAS_P, d]:
+        v = coef[_B_P, d] - coef[_A_P, d] * t
         if v > value:
             value = v
             b = _PLUS
@@ -165,9 +170,9 @@ def _term(coef, d, t):
 def _monotone(coef):
     """Whether every one-sided term increases with ``tau_i`` (true for D > h)."""
     for d in range(3):
-        if coef[6, d] and coef[0, d] <= 0.0:
+        if coef[_HAS_M, d] and coef[_A_M, d] <= 0.0:
             return False
-        if coef[7, d] and coef[2, d] >= 0.0:
+        if coef[_HAS_P, d] and coef[_A_P, d] >= 0.0:
             return False
     return True
 
@@ -183,17 +188,17 @@ def _first_branch(coef, d):
     alpha = 1.0
     beta = 0.0
     b = _NONE
-    if coef[6, d]:
-        z = coef[1, d] / coef[0, d]
-        alpha = coef[0, d]
-        beta = coef[1, d]
+    if coef[_HAS_M, d]:
+        z = coef[_B_M, d] / coef[_A_M, d]
+        alpha = coef[_A_M, d]
+        beta = coef[_B_M, d]
         b = _MINUS
-    if coef[7, d]:
-        z_plus = coef[3, d] / coef[2, d]
+    if coef[_HAS_P, d]:
+        z_plus = coef[_B_P, d] / coef[_A_P, d]
         if z_plus < z:
             z = z_plus
-            alpha = -coef[2, d]
-            beta = -coef[3, d]
+            alpha = -coef[_A_P, d]
+            beta = -coef[_B_P, d]
             b = _PLUS
     return z, alpha, beta, b
 
@@ -261,15 +266,17 @@ def _bracket_solve(coef, s, breakpoints):
     """
     nb = 0
     for d in range(3):
-        if coef[6, d]:
-            breakpoints[nb] = coef[1, d] / coef[0, d]
+        if coef[_HAS_M, d]:
+            breakpoints[nb] = coef[_B_M, d] / coef[_A_M, d]
             nb += 1
-        if coef[7, d]:
-            breakpoints[nb] = coef[3, d] / coef[2, d]
+        if coef[_HAS_P, d]:
+            breakpoints[nb] = coef[_B_P, d] / coef[_A_P, d]
             nb += 1
         # where the two branches cross (they are parallel if the slopes match)
-        if coef[6, d] and coef[7, d] and coef[0, d] + coef[2, d] != 0.0:
-            breakpoints[nb] = (coef[1, d] + coef[3, d]) / (coef[0, d] + coef[2, d])
+        if coef[_HAS_M, d] and coef[_HAS_P, d] and coef[_A_M, d] + coef[_A_P, d] != 0.0:
+            breakpoints[nb] = (coef[_B_M, d] + coef[_B_P, d]) / (
+                coef[_A_M, d] + coef[_A_P, d]
+            )
             nb += 1
     if nb == 0:
         return np.inf, 0
@@ -303,14 +310,22 @@ def _bracket_solve(coef, s, breakpoints):
         _, b = _term(coef, d, t_mid)
         if b == _NONE:
             continue
-        i = 0 if b == _MINUS else 2
-        A += coef[i, d] * coef[i, d]
-        B += coef[i, d] * coef[i + 1, d]
-        C += coef[i + 1, d] * coef[i + 1, d]
+        a, b_ = _line(coef, d, b)
+        A += a * a
+        B += a * b_
+        C += b_ * b_
         code += b * 3**d
     if A <= 0.0:
         return np.inf, 0
     return (B + np.sqrt(max(B * B - A * C, 0.0))) / A, code
+
+
+@njit(cache=True, inline="always")
+def _line(coef, d, b):
+    """Slope ``a`` and offset ``b`` of branch ``b`` of axis ``d``: ``a tau_i - b``."""
+    if b == _MINUS:
+        return coef[_A_M, d], coef[_B_M, d]
+    return coef[_A_P, d], coef[_B_P, d]
 
 
 @njit(cache=True)
@@ -334,13 +349,13 @@ def _local_solve(coef, s, breakpoints):
             b = _branch(code, d)
             if b == _NONE:
                 continue
-            k = 0 if b == _MINUS else 2
-            if not coef[6 + k // 2, d]:
+            if not coef[_HAS_M if b == _MINUS else _HAS_P, d]:
                 usable = False
                 break
-            A += coef[k, d] * coef[k, d]
-            B += coef[k, d] * coef[k + 1, d]
-            C += coef[k + 1, d] * coef[k + 1, d]
+            a, b_ = _line(coef, d, b)
+            A += a * a
+            B += a * b_
+            C += b_ * b_
         if not usable or A <= 0.0:
             continue
         disc = B * B - A * C
@@ -526,9 +541,9 @@ def _drop_zero_branches(coef, code, t):
     out = 0
     for d in range(3):
         b = _branch(code, d)
-        if b == _MINUS and coef[0, d] * t - coef[1, d] == 0.0:
+        if b == _MINUS and coef[_A_M, d] * t - coef[_B_M, d] == 0.0:
             b = _NONE
-        elif b == _PLUS and coef[2, d] * t - coef[3, d] == 0.0:
+        elif b == _PLUS and coef[_A_P, d] * t - coef[_B_P, d] == 0.0:
             b = _NONE
         out += b * 3**d
     return out
@@ -702,8 +717,8 @@ def solve(
 
     Returns
     -------
-    tau, T : (n_sources, n_nodes) numpy.ndarray
-        Factor and traveltime, ``T = D * tau``.
+    tau : (n_sources, n_nodes) numpy.ndarray
+        Solution; the traveltime is ``T = D * tau``.
     branch : (n_sources, n_nodes) numpy.ndarray of int8
         Branch code of each node.
     order : (n_sources, n_nodes) numpy.ndarray of int
@@ -717,7 +732,6 @@ def solve(
     n = s.size
     nx, ny = nodes_x.size, nodes_y.size
     tau = np.empty((n_sources, n))
-    T = np.empty((n_sources, n))
     branch = np.zeros((n_sources, n), dtype=np.int8)
     order = np.zeros((n_sources, n), dtype=np.int64)
     component_start = np.zeros((n_sources, n), dtype=np.int8)
@@ -747,17 +761,24 @@ def solve(
         breakpoints = np.empty(9)
         grad = np.empty(3)
         for i in range(n):
-            D = _stencil(
-                tau_j, i, nodes_x, nodes_y, nodes_z, src_xyz[j], factored, coef, grad
-            )
-            T[j, i] = D * tau_j[i]
             if not fixed[i]:
+                _stencil(
+                    tau_j,
+                    i,
+                    nodes_x,
+                    nodes_y,
+                    nodes_z,
+                    src_xyz[j],
+                    factored,
+                    coef,
+                    grad,
+                )
                 _, code = _local_solve(coef, s[i], breakpoints)
                 branch[j, i] = _drop_zero_branches(coef, code, tau_j[i])
         n_cyclic[j] = _strong_components(
             branch[j], fixed, nx, ny, order[j], component_start[j]
         )
-    return tau, T, branch, order, component_start, n_iterations, n_cyclic
+    return tau, branch, order, component_start, n_iterations, n_cyclic
 
 
 @njit(cache=True)
@@ -778,14 +799,14 @@ def _linearization(
         neighbour[d] = -1
         b = _branch(code, d)
         if b == _MINUS:
-            r = coef[0, d] * tau[i] - coef[1, d]
-            c[d] = r * D / coef[4, d]
-            C += coef[0, d] * r
+            r = coef[_A_M, d] * tau[i] - coef[_B_M, d]
+            c[d] = r * D / coef[_H_M, d]
+            C += coef[_A_M, d] * r
             neighbour[d] = i - strides[d]
         elif b == _PLUS:
-            r = coef[2, d] * tau[i] - coef[3, d]
-            c[d] = -r * D / coef[5, d]
-            C += coef[2, d] * r
+            r = coef[_A_P, d] * tau[i] - coef[_B_P, d]
+            c[d] = -r * D / coef[_H_P, d]
+            C += coef[_A_P, d] * r
             neighbour[d] = i + strides[d]
     return C
 

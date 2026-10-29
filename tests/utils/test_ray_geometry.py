@@ -4,8 +4,8 @@ import pytest
 import scipy.sparse as sp
 
 from simpeg_seismic.utils import ray_geometry
+from simpeg_seismic.utils._mesh import axis_nodes, mesh_bounds
 from simpeg_seismic.utils.ray_geometry import (
-    _mesh_bounds,
     _slab_clip_lengths,
     ray_cell_length_matrix,
 )
@@ -67,7 +67,7 @@ MESHES = {
 
 def random_rays(mesh, n_rays, seed=0):
     rng = np.random.default_rng(seed)
-    lo, hi = _mesh_bounds(mesh)
+    lo, hi = mesh_bounds(mesh)
     x0 = rng.uniform(lo, hi, size=(n_rays, mesh.dim))
     x1 = rng.uniform(lo, hi, size=(n_rays, mesh.dim))
     return x0, x1
@@ -186,14 +186,14 @@ def test_zero_length_ray(mesh_name):
 def test_endpoint_outside_mesh_raises(mesh_name):
     mesh = MESHES[mesh_name]()
     x0, x1 = random_rays(mesh, 3)
-    x1[1] = _mesh_bounds(mesh)[1] + 1.0
+    x1[1] = mesh_bounds(mesh)[1] + 1.0
     with pytest.raises(ValueError, match="outside of the mesh"):
         ray_cell_length_matrix(mesh, x0, x1)
 
 
 def test_endpoint_on_boundary_within_tolerance():
     mesh = tensor_3d()
-    lo, hi = _mesh_bounds(mesh)
+    lo, hi = mesh_bounds(mesh)
     x0 = lo - 1e-12
     x1 = hi + 1e-12
     G = ray_cell_length_matrix(mesh, [x0], [x1])
@@ -226,7 +226,7 @@ def test_numba_matches_numpy(mesh_name):
     mesh = MESHES[mesh_name]()
     x0, x1 = random_rays(mesh, 300, seed=4)
     # add rays along node planes, through nodes and of zero length
-    nodes = [ray_geometry._axis_nodes(mesh, d) for d in range(mesh.dim)]
+    nodes = [axis_nodes(mesh, d) for d in range(mesh.dim)]
     corner = np.array([n[2] for n in nodes])
     x0 = np.vstack([x0, corner, corner, x0[0]])
     x1 = np.vstack([x1, np.array([n[-3] for n in nodes]), corner, x0[0]])
@@ -245,7 +245,7 @@ def test_bad_engine():
 def test_matrix_matches_coo_triplets(mesh_name):
     """CSR built directly agrees with the COO triplets, with and without splits."""
     mesh = MESHES[mesh_name]()
-    lo, hi = _mesh_bounds(mesh)
+    lo, hi = mesh_bounds(mesh)
     x0, x1 = random_rays(mesh, 20, seed=5)
     # ray 3 on the upper boundary along the first axis: only the copy shifted
     # in the negative direction survives, which puts the copies out of ray order
@@ -254,7 +254,7 @@ def test_matrix_matches_coo_triplets(mesh_name):
     for split in (False, True):
         if split:
             # ray 7 on an interior node plane: two copies
-            node = ray_geometry._axis_nodes(mesh, 1)[2]
+            node = axis_nodes(mesh, 1)[2]
             x0[7, 1] = x1[7, 1] = node
             x0[7, 0], x1[7, 0] = lo[0], hi[0]
             x0[7, 2:] = x1[7, 2:]
