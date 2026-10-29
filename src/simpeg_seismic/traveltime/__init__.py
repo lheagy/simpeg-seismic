@@ -1,17 +1,41 @@
 """
+=============================================
+Traveltime (:mod:`simpeg_seismic.traveltime`)
+=============================================
+.. currentmodule:: simpeg_seismic.traveltime
+
 First-arrival traveltime surveys and simulations.
 
-Survey, sources and receivers
------------------------------
-Survey
-sources.PointSource
-receivers.Traveltime
-
 Simulations
------------
-SimulationStraightRay
-SimulationEikonal
-EikonalFields
+===========
+.. autosummary::
+  :toctree: generated/
+
+  SimulationStraightRay
+  SimulationEikonal
+
+Fields
+======
+.. autosummary::
+  :toctree: generated/
+
+  EikonalFields
+
+Survey, Sources and Receivers
+=============================
+.. autosummary::
+  :toctree: generated/
+
+  Survey
+  sources.PointSource
+  receivers.Traveltime
+
+Base Classes
+============
+.. autosummary::
+  :toctree: generated/
+
+  simulation.BaseTraveltimeSimulation
 """
 
 from . import receivers, simulation, sources

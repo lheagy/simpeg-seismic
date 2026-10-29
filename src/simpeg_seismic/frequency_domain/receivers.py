@@ -42,7 +42,7 @@ class Pressure(BaseRx):
 
         Parameters
         ----------
-        src : simpeg_seismic.frequency_domain.sources.Point
+        src : simpeg_seismic.frequency_domain.sources.PointSource
             The source.
         mesh : discretize.TensorMesh
             The mesh.
@@ -61,7 +61,7 @@ class Pressure(BaseRx):
 
         Parameters
         ----------
-        src : simpeg_seismic.frequency_domain.sources.Point
+        src : simpeg_seismic.frequency_domain.sources.PointSource
             The source.
         mesh : discretize.TensorMesh
             The mesh.

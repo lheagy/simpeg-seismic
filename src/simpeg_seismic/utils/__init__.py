@@ -1,10 +1,26 @@
 """
-Utilities for seismic simulations.
+=======================================
+Utilities (:mod:`simpeg_seismic.utils`)
+=======================================
+.. currentmodule:: simpeg_seismic.utils
 
-Functions
----------
-ray_cell_lengths
-ray_cell_length_matrix
+Ray Geometry
+============
+.. autosummary::
+  :toctree: generated/
+
+  ray_cell_lengths
+  ray_cell_length_matrix
+
+Source Waveforms
+================
+.. autosummary::
+  :toctree: generated/
+
+  wavelets.BaseWaveform
+  wavelets.RickerWaveform
+  wavelets.ricker
+  wavelets.ricker_spectrum
 """
 
 from . import wavelets

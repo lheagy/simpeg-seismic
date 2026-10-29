@@ -1,21 +1,21 @@
 """
-Seismic forward simulations for SimPEG.
+======================================
+SimPEG Seismic (:mod:`simpeg_seismic`)
+======================================
+.. currentmodule:: simpeg_seismic
 
-Usually imported as ``import simpeg_seismic as seismic``. Like
-``simpeg.electromagnetics``, each kind of data has its own subpackage with
-its survey, sources, receivers and simulations.
+Seismic simulations for SimPEG, usually imported as
+``import simpeg_seismic as seismic``. Like ``simpeg.electromagnetics``, each
+kind of data has its own subpackage with its survey, sources, receivers and
+simulations.
 
-Subpackages
------------
-traveltime
-    First-arrival traveltimes: straight-ray and eikonal simulations.
-frequency_domain
-    Frequency-domain acoustic (Helmholtz) simulation, for FWI.
-acoustic
-    Discrete acoustic operators and PML, shared by the wave-equation
-    simulations.
-utils
-    Ray geometry, eikonal kernels, mesh helpers and source wavelets.
+.. autosummary::
+  :toctree: generated/
+
+  traveltime
+  frequency_domain
+  acoustic
+  utils
 """
 
 from . import acoustic, frequency_domain, traveltime, utils

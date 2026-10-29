@@ -22,3 +22,11 @@ def test_ricker_spectrum_matches_fourier_transform():
             wavelets.ricker_spectrum(f, peak), numerical, rtol=1e-6, atol=1e-9
         )
     assert wavelets.ricker_spectrum(np.r_[5.0, 20.0], peak).shape == (2,)
+
+
+def test_ricker_waveform():
+    waveform = wavelets.RickerWaveform(15.0)
+    t = np.linspace(0, 0.3, 50)
+    np.testing.assert_array_equal(waveform.eval(t), wavelets.ricker(t, 15.0))
+    assert waveform.spectrum(12.0) == wavelets.ricker_spectrum(12.0, 15.0)
+    assert waveform.delay == 1.5 / 15.0

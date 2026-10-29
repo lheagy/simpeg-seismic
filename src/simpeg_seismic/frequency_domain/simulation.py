@@ -5,7 +5,7 @@ import scipy.sparse as sp
 from discretize import TensorMesh
 from simpeg import props
 from simpeg.base import BasePDESimulation
-from simpeg.utils import validate_float, validate_integer, validate_type
+from simpeg.utils import Zero, validate_float, validate_integer, validate_type
 
 from .. import acoustic
 from ..utils._mesh import check_points_inside
@@ -362,9 +362,86 @@ class SimulationAcoustic(BasePDESimulation):
         f = FieldsAcoustic(self)
         for frequency in self.survey.frequencies:
             sources = self.survey.get_sources_by_frequency(frequency)
-            rhs = np.column_stack([src.evaluate(self) for src in sources])
-            f[sources, "pSolution"] = self._solve(frequency, rhs)
+            f[sources, "pSolution"] = self._solve(frequency, self.getRHS(frequency))
         return f
+
+    def getSourceTerm(self, frequency):
+        """Source terms of all sources at one frequency.
+
+        Parameters
+        ----------
+        frequency : float
+            Frequency (Hz).
+
+        Returns
+        -------
+        (n_nodes, n_sources) numpy.ndarray of complex
+            One column per source at this frequency, in survey order.
+        """
+        sources = self.survey.get_sources_by_frequency(frequency)
+        return np.column_stack([src.eval(self) for src in sources])
+
+    def getRHS(self, frequency):
+        """Right-hand side of the system at one frequency.
+
+        Parameters
+        ----------
+        frequency : float
+            Frequency (Hz).
+
+        Returns
+        -------
+        (n_nodes, n_sources) numpy.ndarray of complex
+        """
+        return self.getSourceTerm(frequency)
+
+    def getRHSDeriv(self, frequency, src, v, adjoint=False):
+        """Derivative of the right-hand side with respect to the model.
+
+        The sources do not depend on the model, so this is zero.
+
+        Returns
+        -------
+        simpeg.utils.Zero
+        """
+        return Zero()
+
+    def getADeriv(self, frequency, u, v, adjoint=False):
+        r"""Derivative of :math:`\mathbf{A}(\mathbf{m}) \mathbf{u}` with respect to the model.
+
+        Only the mass term depends on the model:
+        :math:`\mathbf{A} \mathbf{u} = \mathbf{K} \mathbf{u} - \omega^2
+        \mathbf{u} \odot (\mathbf{B} s^2)`, so
+
+        .. math::
+            \frac{\partial (\mathbf{A} \mathbf{u})}{\partial \mathbf{m}} \mathbf{v}
+            = -\omega^2 \, \mathbf{u} \odot \left(\mathbf{B} \left(2 s \odot
+            \frac{\partial s}{\partial \mathbf{m}} \mathbf{v}\right)\right).
+
+        Parameters
+        ----------
+        frequency : float
+            Frequency (Hz).
+        u : (n_nodes,) numpy.ndarray of complex
+            Pressure of one source.
+        v : numpy.ndarray
+            Vector on the model, or on the nodes when ``adjoint`` is True.
+        adjoint : bool, optional
+            Apply the transpose (not the conjugate transpose).
+
+        Returns
+        -------
+        numpy.ndarray of complex
+            On the nodes, or on the model when ``adjoint`` is True.
+        """
+        _, B = self._operators_at(frequency)
+        omega = 2 * np.pi * frequency
+        if not adjoint:
+            ds = self.slownessDeriv @ v
+            return -(omega**2) * u * (B @ (2 * self.slowness * ds))
+        return -(omega**2) * (
+            self.slownessDeriv.T @ (2 * self.slowness * (B.T @ (u * v)))
+        )
 
     def dpred(self, m=None, f=None):
         # Docstring inherited from BaseSimulation.
@@ -376,30 +453,23 @@ class SimulationAcoustic(BasePDESimulation):
                 data[self.survey.get_slice(src, rx)] = rx.eval(src, self.mesh, f)
         return data
 
-    def _mass_derivative(self, frequency):
-        r"""Matrix taking a slowness change to the change in ``diag(A)`` per node.
-
-        ``A = K - w^2 diag(B s^2)``, so ``dA[u] = -w^2 diag(u) B diag(2 s) ds``.
-        Returns ``w^2 B diag(2 s)``; the change in ``A u`` is then
-        ``-u * (this @ ds)``.
-        """
-        _, B = self._operators_at(frequency)
-        omega = 2 * np.pi * frequency
-        return omega**2 * B @ sp.diags(2 * self.slowness)
-
     def Jvec(self, m, v, f=None):
         # Docstring inherited from BaseSimulation.
         if f is None:
             f = self.fields(m)
         self.model = m
-        ds = self.slownessDeriv @ v
         out = np.empty(self.survey.nD)
         for frequency in self.survey.frequencies:
             sources = self.survey.get_sources_by_frequency(frequency)
-            u = f[sources, "pSolution"]
-            # A du = -dA[u] = u * (w^2 B 2s ds)
-            dmass = self._mass_derivative(frequency) @ ds
-            du = self._solve(frequency, u * dmass[:, None])
+            # A du = -dA/dm[u] v + dRHS/dm v, for all sources at once
+            rhs = np.column_stack(
+                [
+                    -self.getADeriv(frequency, f[src, "pSolution"][:, 0], v)
+                    + self.getRHSDeriv(frequency, src, v)
+                    for src in sources
+                ]
+            )
+            du = self._solve(frequency, rhs)
             for j, src in enumerate(sources):
                 for rx in src.receiver_list:
                     out[self.survey.get_slice(src, rx)] = rx.evalDeriv(
@@ -412,13 +482,13 @@ class SimulationAcoustic(BasePDESimulation):
         if f is None:
             f = self.fields(m)
         self.model = m
-        gradient = np.zeros(self.mesh.n_cells)
+        Jtv = 0.0
         for frequency in self.survey.frequencies:
             sources = self.survey.get_sources_by_frequency(frequency)
-            g = np.zeros((self.mesh.n_nodes, len(sources)), dtype=complex)
+            df_duT = np.zeros((self.mesh.n_nodes, len(sources)), dtype=complex)
             for j, src in enumerate(sources):
                 for rx in src.receiver_list:
-                    g[:, j] += rx.evalDeriv(
+                    df_duT[:, j] += rx.evalDeriv(
                         src,
                         self.mesh,
                         f,
@@ -426,9 +496,16 @@ class SimulationAcoustic(BasePDESimulation):
                         adjoint=True,
                     )
             # A is complex symmetric, so A^-T = A^-1: reuse the factorization
-            adjoint_field = self._solve(frequency, g)
-            u = f[sources, "pSolution"]
-            gradient += np.real(
-                self._mass_derivative(frequency).T @ np.sum(u * adjoint_field, axis=1)
-            )
-        return self.slownessDeriv.T @ gradient
+            ATinv_df_duT = self._solve(frequency, df_duT)
+            for j, src in enumerate(sources):
+                dA_dmT = self.getADeriv(
+                    frequency,
+                    f[src, "pSolution"][:, 0],
+                    ATinv_df_duT[:, j],
+                    adjoint=True,
+                )
+                dRHS_dmT = self.getRHSDeriv(
+                    frequency, src, ATinv_df_duT[:, j], adjoint=True
+                )
+                Jtv = Jtv + np.real(-dA_dmT + dRHS_dmT)
+        return np.asarray(Jtv)

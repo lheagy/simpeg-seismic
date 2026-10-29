@@ -1,12 +1,5 @@
 """
-Traveltime simulations.
-
-Classes
--------
-BaseTraveltimeSimulation
-SimulationStraightRay
-SimulationEikonal
-EikonalFields
+Traveltime simulations; see :mod:`simpeg_seismic.traveltime`.
 """
 
 from .base import BaseTraveltimeSimulation

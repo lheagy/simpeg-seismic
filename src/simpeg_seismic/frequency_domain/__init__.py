@@ -1,16 +1,34 @@
 """
-Frequency-domain acoustic surveys and simulations (Helmholtz).
+=========================================================
+Frequency Domain (:mod:`simpeg_seismic.frequency_domain`)
+=========================================================
+.. currentmodule:: simpeg_seismic.frequency_domain
 
-Survey, sources and receivers
------------------------------
-Survey
-sources.Point
-receivers.Pressure
+Frequency-domain acoustic (Helmholtz) surveys and simulations, for
+full-waveform inversion.
 
 Simulations
------------
-SimulationAcoustic
-FieldsAcoustic
+===========
+.. autosummary::
+  :toctree: generated/
+
+  SimulationAcoustic
+
+Fields
+======
+.. autosummary::
+  :toctree: generated/
+
+  FieldsAcoustic
+
+Survey, Sources and Receivers
+=============================
+.. autosummary::
+  :toctree: generated/
+
+  Survey
+  sources.PointSource
+  receivers.Pressure
 """
 
 from . import receivers, sources

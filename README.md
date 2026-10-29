@@ -28,8 +28,9 @@ sim = traveltime.SimulationEikonal(mesh, survey=survey, slownessMap=slowness_map
     `simpeg.maps.InjectActiveCells`. Requires numba.
 - `frequency_domain`: constant-density acoustic (Helmholtz) simulation for
   FWI.
-  - `Survey`, `sources.Point` (with a frequency and amplitude),
-    `receivers.Pressure` (real or imaginary part).
+  - `Survey`, `sources.PointSource` (with a frequency, and an amplitude or a
+    waveform such as `utils.wavelets.RickerWaveform`), `receivers.Pressure`
+    (real or imaginary part).
   - `SimulationAcoustic`: pressure on the nodes of a 2D or 3D
     `discretize.TensorMesh`, PML absorbing boundaries (`pml_velocity`,
     `pml_cells`, about one wavelength thick), optional free surface. One
@@ -40,7 +41,8 @@ sim = traveltime.SimulationEikonal(mesh, survey=survey, slownessMap=slowness_map
   planned `time_domain` (acoustic wave equation).
 - `utils`: ray-cell intersection lengths (`ray_cell_length_matrix`, with an
   optional numba engine), the eikonal kernels, mesh helpers and source
-  wavelets (`wavelets.ricker`, `wavelets.ricker_spectrum`).
+  waveforms (`wavelets.RickerWaveform`, with `eval(time)` and
+  `spectrum(frequency)`).
 
 ## Examples
 

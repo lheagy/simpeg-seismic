@@ -1,4 +1,9 @@
 r"""
+===================================================
+Acoustic Operators (:mod:`simpeg_seismic.acoustic`)
+===================================================
+.. currentmodule:: simpeg_seismic.acoustic
+
 Discrete operators for the constant-density acoustic wave equation.
 
 Shared by the frequency-domain (and future time-domain) simulations. Pressure
@@ -25,6 +30,15 @@ and multiplying the stretched equation by
 :math:`\gamma = \gamma_x \gamma_y \gamma_z` gives a symmetric weak form: the
 stiffness along axis :math:`d` is weighted by
 :math:`\Lambda_d = \gamma / \gamma_d^2` and the mass by :math:`\gamma`.
+
+.. autosummary::
+  :toctree: generated/
+
+  pml_damping
+  pml_inside
+  stretching
+  stiffness
+  mass_weights
 """
 
 import numpy as np

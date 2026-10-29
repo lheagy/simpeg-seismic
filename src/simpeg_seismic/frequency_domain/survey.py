@@ -1,7 +1,7 @@
 from simpeg.survey import BaseSurvey
 from simpeg.utils import validate_list_of_types
 
-from .sources import Point
+from .sources import PointSource
 
 
 class Survey(BaseSurvey):
@@ -12,7 +12,7 @@ class Survey(BaseSurvey):
 
     Parameters
     ----------
-    source_list : list of simpeg_seismic.frequency_domain.sources.Point
+    source_list : list of simpeg_seismic.frequency_domain.sources.PointSource
         The sources, each with its frequency and receivers.
     """
 
@@ -22,14 +22,14 @@ class Survey(BaseSurvey):
 
         Returns
         -------
-        list of simpeg_seismic.frequency_domain.sources.Point
+        list of simpeg_seismic.frequency_domain.sources.PointSource
         """
         return self._source_list
 
     @source_list.setter
     def source_list(self, new_list):
         self._source_list = validate_list_of_types(
-            "source_list", new_list, Point, ensure_unique=True
+            "source_list", new_list, PointSource, ensure_unique=True
         )
         by_frequency = {}
         for src in self._source_list:
@@ -46,6 +46,26 @@ class Survey(BaseSurvey):
         """
         return sorted(self._sources_by_frequency)
 
+    @property
+    def num_frequencies(self):
+        """Number of frequencies in the survey.
+
+        Returns
+        -------
+        int
+        """
+        return len(self._sources_by_frequency)
+
+    @property
+    def num_sources_by_frequency(self):
+        """Number of sources at each frequency.
+
+        Returns
+        -------
+        dict of {float: int}
+        """
+        return {f: len(self._sources_by_frequency[f]) for f in self.frequencies}
+
     def get_sources_by_frequency(self, frequency):
         """Sources at one frequency.
 
@@ -55,7 +75,7 @@ class Survey(BaseSurvey):
 
         Returns
         -------
-        list of simpeg_seismic.frequency_domain.sources.Point
+        list of simpeg_seismic.frequency_domain.sources.PointSource
         """
         if frequency not in self._sources_by_frequency:
             raise KeyError(f"No sources at frequency {frequency} Hz.")

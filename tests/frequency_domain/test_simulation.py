@@ -9,6 +9,7 @@ from simpeg import maps
 from simpeg.utils import get_default_solver
 
 from simpeg_seismic import frequency_domain as fd
+from simpeg_seismic.utils import wavelets
 
 VELOCITY = 1500.0
 FREQUENCY = 30.0  # wavelength 50 m
@@ -23,7 +24,7 @@ def make_survey(source_locations, receiver_locations, frequencies=(FREQUENCY,)):
     ]
     return fd.Survey(
         [
-            fd.sources.Point(receivers, location=loc, frequency=f)
+            fd.sources.PointSource(receivers, location=loc, frequency=f)
             for f in frequencies
             for loc in source_locations
         ]
@@ -200,10 +201,13 @@ def test_factorization_cleared_on_model_update():
 def test_survey_groups_by_frequency():
     rx = [fd.receivers.Pressure(np.zeros((1, 2)))]
     sources = [
-        fd.sources.Point(rx, location=np.zeros(2), frequency=f) for f in (5.0, 2.0, 5.0)
+        fd.sources.PointSource(rx, location=np.zeros(2), frequency=f)
+        for f in (5.0, 2.0, 5.0)
     ]
     survey = fd.Survey(sources)
     assert survey.frequencies == [2.0, 5.0]
+    assert survey.num_frequencies == 2
+    assert survey.num_sources_by_frequency == {2.0: 1, 5.0: 2}
     assert survey.get_sources_by_frequency(5.0) == [sources[0], sources[2]]
     with pytest.raises(KeyError):
         survey.get_sources_by_frequency(3.0)
@@ -211,9 +215,9 @@ def test_survey_groups_by_frequency():
 
 def test_validation():
     with pytest.raises(TypeError, match="location"):
-        fd.sources.Point([], frequency=1.0)
+        fd.sources.PointSource([], frequency=1.0)
     with pytest.raises(TypeError, match="frequency"):
-        fd.sources.Point([], location=np.zeros(2))
+        fd.sources.PointSource([], location=np.zeros(2))
     with pytest.raises(ValueError):
         fd.receivers.Pressure(np.zeros((1, 2)), component="amplitude")
     with pytest.raises(TypeError):
@@ -246,3 +250,20 @@ def test_small_model_change_is_not_ignored():
         d0 = sim.dpred(model)
         d1 = sim.dpred(model * (1 + 1e-7))
     assert not np.array_equal(d0, d1)
+
+
+def test_source_waveform():
+    waveform = wavelets.RickerWaveform(10.0)
+    src = fd.sources.PointSource(
+        [], location=np.zeros(2), frequency=7.0, waveform=waveform
+    )
+    assert src.amplitude == waveform.spectrum(7.0)
+    with pytest.raises(ValueError, match="waveform"):
+        src.amplitude = 2.0
+    with pytest.raises(ValueError, match="not both"):
+        fd.sources.PointSource(
+            [], location=np.zeros(2), frequency=7.0, amplitude=1.0, waveform=waveform
+        )
+    assert (
+        fd.sources.PointSource([], location=np.zeros(2), frequency=7.0).amplitude == 1.0
+    )
