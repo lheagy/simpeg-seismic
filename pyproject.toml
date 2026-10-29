@@ -17,7 +17,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-test = ["pytest", "matplotlib"]
+numba = ["numba"]
+test = ["pytest", "matplotlib", "numba"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

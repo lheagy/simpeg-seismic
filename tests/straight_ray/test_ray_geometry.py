@@ -2,11 +2,21 @@ import discretize
 import numpy as np
 import pytest
 
+from simpeg_seismic.straight_ray import _ray_geometry
 from simpeg_seismic.straight_ray._ray_geometry import (
     _mesh_bounds,
     _slab_clip_lengths,
     ray_cell_length_matrix,
 )
+
+
+@pytest.fixture(autouse=True, params=_ray_geometry.ENGINES)
+def engine(request, monkeypatch):
+    """Run every test with each tensor-mesh implementation."""
+    if request.param == "numba":
+        pytest.importorskip("numba")
+    monkeypatch.setattr(_ray_geometry, "DEFAULT_ENGINE", request.param)
+    return request.param
 
 
 def tensor_2d():
@@ -207,3 +217,24 @@ def test_rejects_cylindrical_mesh():
     mesh = discretize.CylindricalMesh([4, 1, 4])
     with pytest.raises(TypeError):
         ray_cell_length_matrix(mesh, [[0.1, 0, 0.1]], [[0.5, 0, 0.5]])
+
+
+@pytest.mark.parametrize("mesh_name", ["tensor_2d", "tensor_3d"])
+def test_numba_matches_numpy(mesh_name):
+    pytest.importorskip("numba")
+    mesh = MESHES[mesh_name]()
+    x0, x1 = random_rays(mesh, 300, seed=4)
+    # add rays along node planes, through nodes and of zero length
+    nodes = [_ray_geometry._axis_nodes(mesh, d) for d in range(mesh.dim)]
+    corner = np.array([n[2] for n in nodes])
+    x0 = np.vstack([x0, corner, corner, x0[0]])
+    x1 = np.vstack([x1, np.array([n[-3] for n in nodes]), corner, x0[0]])
+    x1[-2, 0] = nodes[0][-1]
+    G_numba = ray_cell_length_matrix(mesh, x0, x1, engine="numba")
+    G_numpy = ray_cell_length_matrix(mesh, x0, x1, engine="numpy")
+    assert abs(G_numba - G_numpy).max() < 1e-10
+
+
+def test_bad_engine():
+    with pytest.raises(ValueError, match="engine"):
+        ray_cell_length_matrix(tensor_2d(), [[0.0, 1.0]], [[1.0, 2.0]], engine="cuda")

@@ -11,10 +11,18 @@ import numpy as np
 import scipy.sparse as sp
 from discretize import TensorMesh, TreeMesh
 
+try:
+    from ._numba_kernels import tensor_mesh_lengths as _numba_tensor_mesh_lengths
+except ImportError:
+    _numba_tensor_mesh_lengths = None
+
 __all__ = ["ray_cell_lengths", "ray_cell_length_matrix"]
 
+ENGINES = ("numba", "numpy")
+DEFAULT_ENGINE = "numba" if _numba_tensor_mesh_lengths is not None else "numpy"
 
-def ray_cell_lengths(mesh, x0, x1, rtol=1e-10):
+
+def ray_cell_lengths(mesh, x0, x1, rtol=1e-10, engine=None):
     """Compute the length of each straight ray inside each cell it crosses.
 
     Parameters
@@ -27,6 +35,9 @@ def ray_cell_lengths(mesh, x0, x1, rtol=1e-10):
         Tolerance, relative to the largest mesh dimension, used to decide
         whether a point is inside the mesh and whether a ray lies on a cell
         face.
+    engine : {"numba", "numpy"}, optional
+        Implementation used for tensor meshes. Defaults to ``"numba"`` when
+        numba is installed. Tree meshes always use the numpy implementation.
 
     Returns
     -------
@@ -44,6 +55,7 @@ def ray_cell_lengths(mesh, x0, x1, rtol=1e-10):
     the mesh, all of the length goes to the cells inside the mesh.
     """
     _validate_mesh(mesh)
+    engine = _validate_engine(engine)
     x0 = _validate_points("x0", x0, mesh.dim)
     x1 = _validate_points("x1", x1, mesh.dim)
     if x0.shape != x1.shape:
@@ -69,7 +81,15 @@ def ray_cell_lengths(mesh, x0, x1, rtol=1e-10):
 
     copy_ray, copy_weight, x0, x1 = _split_face_aligned_rays(mesh, x0, x1, tol)
 
-    if isinstance(mesh, TensorMesh):
+    if isinstance(mesh, TensorMesh) and engine == "numba":
+        copy_index, cell_index, length = _numba_tensor_mesh_lengths(
+            tuple(_axis_nodes(mesh, axis) for axis in range(mesh.dim)),
+            mesh.shape_cells,
+            x0,
+            x1,
+            tol,
+        )
+    elif isinstance(mesh, TensorMesh):
         copy_index, cell_index, length = _tensor_mesh_lengths(mesh, x0, x1, tol)
     else:
         copy_index, cell_index, length = _tree_mesh_lengths(mesh, x0, x1, tol)
@@ -79,7 +99,7 @@ def ray_cell_lengths(mesh, x0, x1, rtol=1e-10):
     return ray_index, cell_index, length
 
 
-def ray_cell_length_matrix(mesh, x0, x1, rtol=1e-10):
+def ray_cell_length_matrix(mesh, x0, x1, rtol=1e-10, engine=None):
     """Sparse matrix of ray lengths in each cell.
 
     Parameters
@@ -90,13 +110,17 @@ def ray_cell_length_matrix(mesh, x0, x1, rtol=1e-10):
         Start and end points of each ray.
     rtol : float, optional
         See :func:`ray_cell_lengths`.
+    engine : {"numba", "numpy"}, optional
+        See :func:`ray_cell_lengths`.
 
     Returns
     -------
     (n_rays, n_cells) scipy.sparse.csr_matrix
         Entry ``(i, j)`` is the length of ray ``i`` inside cell ``j``.
     """
-    ray_index, cell_index, length = ray_cell_lengths(mesh, x0, x1, rtol=rtol)
+    ray_index, cell_index, length = ray_cell_lengths(
+        mesh, x0, x1, rtol=rtol, engine=engine
+    )
     n_rays = np.atleast_2d(x0).shape[0]
     G = sp.csr_matrix((length, (ray_index, cell_index)), shape=(n_rays, mesh.n_cells))
     G.sum_duplicates()
@@ -111,6 +135,16 @@ def _validate_mesh(mesh):
         )
     if mesh.dim not in (2, 3):
         raise ValueError(f"mesh must be 2D or 3D, got a {mesh.dim}D mesh.")
+
+
+def _validate_engine(engine):
+    if engine is None:
+        return DEFAULT_ENGINE
+    if engine not in ENGINES:
+        raise ValueError(f"engine must be one of {ENGINES}, got {engine!r}.")
+    if engine == "numba" and _numba_tensor_mesh_lengths is None:
+        raise ImportError("engine='numba' requires numba to be installed.")
+    return engine
 
 
 def _validate_points(name, points, dim):
